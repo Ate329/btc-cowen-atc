@@ -191,8 +191,9 @@ function App() {
         <nav aria-label="Primary navigation">
           <a href="#model">Model</a>
           <a href="#evidence">Evidence</a>
-          <a href="#caveats">Caveats</a>
           <a href="#paper">Paper</a>
+          <a href="#caveats">Caveats</a>
+          <a className="nav-button-link" href="/?page=about">About</a>
         </nav>
       </header>
 
@@ -490,7 +491,7 @@ function App() {
               target="_blank"
               rel="noreferrer"
             >
-              Read paper
+              Read the paper
               <ExternalLink size={16} />
             </a>
           </div>
