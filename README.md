@@ -10,7 +10,7 @@ npm run generate:data
 npm run dev
 ```
 
-Local builds use Vite `base: "/"`. The GitHub Pages workflow sets `VITE_BASE_PATH` to `/<repo>/` so project Pages URLs such as `https://<user>.github.io/btc-atc/` load assets and data from the correct path. In local Vite dev mode, open `http://localhost:5173/`.
+Local and production builds use Vite `base: "/"` because the site is deployed at the custom domain root, `https://catc.zyhe.me/`. In local Vite dev mode, open `http://localhost:5173/`.
 
 ## Data
 
@@ -35,4 +35,4 @@ Per-date model outputs are monotone-rearranged before rendering.
 
 ## Deploy
 
-`.github/workflows/pages.yml` builds and deploys on pushes to `main`, manual dispatch, and a daily `02:17 UTC` schedule. In GitHub repository settings, set Pages source to GitHub Actions.
+`.github/workflows/pages.yml` builds and deploys on pushes to `main`, manual dispatch, and a daily `02:17 UTC` schedule. `public/CNAME` keeps the GitHub Pages custom domain set to `catc.zyhe.me`. In GitHub repository settings, set Pages source to GitHub Actions.
