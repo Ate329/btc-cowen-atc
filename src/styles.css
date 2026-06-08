@@ -122,6 +122,7 @@ main {
   gap: 34px;
   align-items: end;
   min-width: 0;
+  margin-bottom: 12px;
   padding: 18px 2px 2px;
 }
 
@@ -254,6 +255,13 @@ h2 {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.toolbar-left {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
 }
 
 .chart-action-group {
@@ -608,6 +616,13 @@ h2 {
   padding: clamp(22px, 4vw, 44px);
 }
 
+.content-section > div:first-child:not(.caveat-heading):not(.section-heading-row),
+.section-heading-row > div {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+}
+
 .content-section p {
   color: var(--muted);
   font-size: 16px;
@@ -738,27 +753,38 @@ td {
 }
 
 .caveat-section {
-  grid-template-columns: minmax(220px, 0.44fr) minmax(320px, 1fr);
-  align-items: start;
+  grid-template-columns: 64px minmax(220px, 0.42fr) minmax(320px, 1fr);
+  align-items: center;
   border-left: 4px solid var(--amber);
   background: rgba(255, 255, 255, 0.9);
   box-shadow: 0 14px 42px rgba(31, 36, 32, 0.08);
 }
 
 .caveat-heading {
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
+  display: contents;
 }
 
 .caveat-heading svg {
   flex: 0 0 auto;
-  color: var(--amber);
-  margin-top: 5px;
+  box-sizing: content-box;
+  width: 22px;
+  height: 22px;
+  justify-self: center;
+  align-self: center;
+  border: 1px solid rgba(201, 145, 31, 0.3);
+  border-radius: 999px;
+  background: rgba(250, 233, 189, 0.82);
+  color: #a46109;
+  padding: 12px;
+}
+
+.caveat-heading h2 {
+  grid-column: 2;
 }
 
 .caveat-copy {
   display: grid;
+  grid-column: 3;
   gap: 18px;
 }
 
@@ -801,6 +827,18 @@ td {
   .hero-copy,
   .content-section {
     grid-template-columns: 1fr;
+  }
+
+  .caveat-section {
+    grid-template-columns: 56px minmax(0, 1fr);
+  }
+
+  .caveat-heading h2 {
+    grid-column: 2;
+  }
+
+  .caveat-copy {
+    grid-column: 1 / -1;
   }
 
   .dashboard-strip {
@@ -872,6 +910,11 @@ td {
   }
 
   .chart-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .toolbar-left {
     align-items: stretch;
     flex-direction: column;
   }

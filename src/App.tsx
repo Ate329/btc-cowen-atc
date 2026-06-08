@@ -1,4 +1,11 @@
-import { useCallback, useMemo, useState, useTransition, type ReactNode } from "react";
+import {
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+  type ReactNode,
+} from "react";
 import {
   Activity,
   AlertTriangle,
@@ -12,9 +19,27 @@ import modelConfig from "./data/model-config.json";
 import { QuantileChart } from "./components/QuantileChart";
 import { RangeBrush, type BrushWindow } from "./components/RangeBrush";
 import { useBtcData } from "./lib/useBtcData";
-import { classifyPriceBand, distanceToLevel, quantileKeys } from "./lib/quantileModel";
-import { formatCurrency, formatDateLabel, formatNumber, formatPercent } from "./lib/format";
-import type { PriceRow, QuantileKey, QuantileRow, QuantileValues } from "./lib/types";
+import {
+  classifyPriceBand,
+  distanceToLevel,
+  estimateModel,
+  quantileKeys,
+} from "./lib/quantileModel";
+import {
+  formatCurrency,
+  formatDateLabel,
+  formatNumber,
+  formatPercent,
+} from "./lib/format";
+import type {
+  ModelMode,
+  ModelParameter,
+  PriceRow,
+  QuantileKey,
+  QuantileModelResult,
+  QuantileRow,
+  QuantileValues,
+} from "./lib/types";
 
 type RangeKey = "all" | "10y" | "5y" | "2y";
 
@@ -34,6 +59,14 @@ const ranges: Array<{ key: RangeKey; label: string; years: number | null }> = [
   { key: "2y", label: "2Y", years: 2 },
 ];
 
+const modelModes: Array<{ key: ModelMode; label: string }> = [
+  { key: "paper", label: "Paper ATC" },
+  { key: "asymmetricRefit", label: "ATC Refit" },
+  { key: "linearRegression", label: "Linear QR" },
+  { key: "symmetricQuadratic", label: "Sym Quad" },
+  { key: "stretchedExponential", label: "Stretch Exp" },
+];
+
 const defaultVisibleQuantiles = quantileKeys.reduce(
   (state, key) => ({ ...state, [key]: true }),
   {} as Record<QuantileKey, boolean>,
@@ -41,27 +74,61 @@ const defaultVisibleQuantiles = quantileKeys.reduce(
 
 function App() {
   const dataState = useBtcData();
+  const modelCacheRef = useRef(new Map<string, QuantileModelResult>());
+  const [modelMode, setModelMode] = useState<ModelMode>("paper");
   const [range, setRange] = useState<RangeKey>("all");
   const [projectionYears, setProjectionYears] = useState(0);
   const [brushWindow, setBrushWindow] = useState<BrushWindow | null>(null);
-  const [visibleQuantiles, setVisibleQuantiles] = useState(defaultVisibleQuantiles);
+  const [visibleQuantiles, setVisibleQuantiles] = useState(
+    defaultVisibleQuantiles,
+  );
   const [, startBrushTransition] = useTransition();
 
-  const baseChartData = useMemo(() => {
+  const activeModel = useMemo(() => {
     if (dataState.status !== "ready") return null;
+
+    const cacheKey = [
+      modelMode,
+      dataState.data.metadata.latestCloseDate,
+      dataState.data.prices.length,
+      dataState.data.quantiles.length,
+    ].join(":");
+    const cached = modelCacheRef.current.get(cacheKey);
+
+    if (cached) {
+      return cached;
+    }
+
+    const model = estimateModel(
+      modelMode,
+      dataState.data.prices,
+      dataState.data.metadata.startDate,
+      dataState.data.metadata.projectionEndDate,
+      dataState.data.quantiles,
+    );
+    modelCacheRef.current.set(cacheKey, model);
+    return model;
+  }, [dataState, modelMode]);
+
+  const baseChartData = useMemo(() => {
+    if (dataState.status !== "ready" || !activeModel) return null;
 
     const latestDate = dataState.data.metadata.latestCloseDate;
     const startDate = getRangeStart(latestDate, range);
-    const endDate = getProjectionEndDate(latestDate, projectionYears, dataState.data.metadata.projectionEndDate);
+    const endDate = getProjectionEndDate(
+      latestDate,
+      projectionYears,
+      dataState.data.metadata.projectionEndDate,
+    );
 
     return {
       startDate,
       endDate,
       latestDate,
       prices: filterRows(dataState.data.prices, startDate, latestDate),
-      quantiles: filterRows(dataState.data.quantiles, startDate, endDate),
+      quantiles: filterRows(activeModel.quantiles, startDate, endDate),
     };
-  }, [dataState, range, projectionYears]);
+  }, [activeModel, dataState, range, projectionYears]);
 
   const chartData = useMemo(() => {
     if (!baseChartData) return null;
@@ -70,18 +137,24 @@ function App() {
     const endDate = brushWindow?.endDate ?? baseChartData.endDate;
 
     return {
-      prices: filterRows(baseChartData.prices, startDate, minDate(endDate, baseChartData.latestDate)),
+      prices: filterRows(
+        baseChartData.prices,
+        startDate,
+        minDate(endDate, baseChartData.latestDate),
+      ),
       quantiles: filterRows(baseChartData.quantiles, startDate, endDate),
     };
   }, [baseChartData, brushWindow]);
 
   const latest = useMemo(() => {
-    if (dataState.status !== "ready") return null;
+    if (dataState.status !== "ready" || !activeModel) return null;
 
     const latestPrice = dataState.data.prices.at(-1);
     if (!latestPrice) return null;
 
-    const latestQuantile = dataState.data.quantiles.find((row) => row.date === latestPrice.date);
+    const latestQuantile = activeModel.quantiles.find(
+      (row) => row.date === latestPrice.date,
+    );
     if (!latestQuantile) return null;
 
     const values = toQuantileValues(latestQuantile);
@@ -90,7 +163,7 @@ function App() {
       quantiles: values,
       band: classifyPriceBand(latestPrice.close, values),
     };
-  }, [dataState]);
+  }, [activeModel, dataState]);
 
   function toggleQuantile(key: QuantileKey) {
     setVisibleQuantiles((current) => ({
@@ -128,63 +201,136 @@ function App() {
           <div className="hero-copy">
             <h1>Bitcoin price through asymmetric quantile bands</h1>
             <p>
-              A visual reading of lower-tail support and upper-tail compression from Cowen's 2026 working paper.
+              A visual reading of lower-tail support and upper-tail compression
+              from Cowen's 2026 working paper.
             </p>
           </div>
 
           <div className="stat-ribbon" aria-label="Model curvature summary">
-            <Metric icon={<Sigma size={17} />} label="bLO" value="-0.024" />
-            <Metric icon={<Sigma size={17} />} label="bHI" value="-0.326" />
-            <Metric icon={<Activity size={17} />} label="Delta b" value="-0.302" />
+            {activeModel
+              ? activeModel.metrics.map((metric, index) => (
+                <Metric
+                  key={metric.label}
+                  icon={index === 1 ? <Activity size={17} /> : <Sigma size={17} />}
+                  label={metric.label}
+                  value={metric.value}
+                />
+              ))
+              : null}
             {dataState.status === "ready" ? (
-              <Metric icon={<RefreshCw size={17} />} label="Snapshot" value={formatDateLabel(dataState.data.metadata.latestCloseDate)} />
+              <Metric
+                icon={<RefreshCw size={17} />}
+                label="Snapshot"
+                value={formatDateLabel(dataState.data.metadata.latestCloseDate)}
+              />
             ) : null}
           </div>
 
           <div className="dashboard-strip">
             {latest ? (
               <>
-                <DashboardTile label="Latest close" value={formatCurrency(latest.price.close)} detail={formatDateLabel(latest.price.date)} />
-                <DashboardTile label="Current band" value={latest.band} detail="Observed close vs model quantiles" />
-                <DashboardTile label="Distance to Q1" value={formatPercent(distanceToLevel(latest.price.close, latest.quantiles.q1))} detail={formatCurrency(latest.quantiles.q1)} />
-                <DashboardTile label="Distance to Q50" value={formatPercent(distanceToLevel(latest.price.close, latest.quantiles.q50))} detail={formatCurrency(latest.quantiles.q50)} />
-                <DashboardTile label="Distance to Q99" value={formatPercent(distanceToLevel(latest.price.close, latest.quantiles.q99))} detail={formatCurrency(latest.quantiles.q99)} />
+                <DashboardTile
+                  label="Latest close"
+                  value={formatCurrency(latest.price.close)}
+                  detail={formatDateLabel(latest.price.date)}
+                />
+                <DashboardTile
+                  label="Current band"
+                  value={latest.band}
+                  detail="Observed close vs model quantiles"
+                />
+                <DashboardTile
+                  label="Distance to Q1"
+                  value={formatPercent(
+                    distanceToLevel(latest.price.close, latest.quantiles.q1),
+                  )}
+                  detail={formatCurrency(latest.quantiles.q1)}
+                />
+                <DashboardTile
+                  label="Distance to Q50"
+                  value={formatPercent(
+                    distanceToLevel(latest.price.close, latest.quantiles.q50),
+                  )}
+                  detail={formatCurrency(latest.quantiles.q50)}
+                />
+                <DashboardTile
+                  label="Distance to Q99"
+                  value={formatPercent(
+                    distanceToLevel(latest.price.close, latest.quantiles.q99),
+                  )}
+                  detail={formatCurrency(latest.quantiles.q99)}
+                />
               </>
             ) : (
-              <DashboardTile label="Loading" value="BTC history" detail="Preparing chart data" />
+              <DashboardTile
+                label="Loading"
+                value="BTC history"
+                detail="Preparing chart data"
+              />
             )}
           </div>
 
-          <section className="chart-panel" aria-label="BTC asymmetric quantile chart">
+          <section
+            className="chart-panel"
+            aria-label="BTC asymmetric quantile chart"
+          >
             <div className="chart-toolbar">
-              <div className="segmented-control" aria-label="Date range">
-                {ranges.map((item) => (
-                  <button
-                    key={item.key}
-                    className={range === item.key ? "active" : ""}
-                    type="button"
-                    onClick={() => {
-                      setRange(item.key);
-                      setBrushWindow(null);
-                    }}
-                  >
-                    {item.label}
-                  </button>
-                ))}
+              <div className="toolbar-left">
+                <div className="segmented-control" aria-label="Model mode">
+                  {modelModes.map((item) => (
+                    <button
+                      key={item.key}
+                      className={modelMode === item.key ? "active" : ""}
+                      type="button"
+                      aria-pressed={modelMode === item.key}
+                      onClick={() => {
+                        setModelMode(item.key);
+                        setBrushWindow(null);
+                      }}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="segmented-control" aria-label="Date range">
+                  {ranges.map((item) => (
+                    <button
+                      key={item.key}
+                      className={range === item.key ? "active" : ""}
+                      type="button"
+                      onClick={() => {
+                        setRange(item.key);
+                        setBrushWindow(null);
+                      }}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <div className="chart-action-group">
-                <div className="projection-control" aria-label="Projection horizon">
+                <div
+                  className="projection-control"
+                  aria-label="Projection horizon"
+                >
                   <span className="projection-label">
                     <CalendarDays size={17} />
                     <span>Projection</span>
                   </span>
-                  <div className="projection-options" role="radiogroup" aria-label="Projection horizon">
+                  <div
+                    className="projection-options"
+                    role="radiogroup"
+                    aria-label="Projection horizon"
+                  >
                     {projectionOptions.map((option) => (
                       <button
                         key={option.years}
                         type="button"
-                        className={projectionYears === option.years ? "active" : ""}
+                        className={
+                          projectionYears === option.years ? "active" : ""
+                        }
                         aria-pressed={projectionYears === option.years}
                         onClick={() => {
                           setProjectionYears(option.years);
@@ -200,16 +346,24 @@ function App() {
             </div>
 
             <div className="quantile-toggles" aria-label="Quantile visibility">
-              {modelConfig.coefficients.map((coefficient) => (
-                <button
-                  key={coefficient.key}
-                  className={visibleQuantiles[coefficient.key as QuantileKey] ? "active" : ""}
-                  type="button"
-                  onClick={() => toggleQuantile(coefficient.key as QuantileKey)}
-                >
-                  {coefficient.label}
-                </button>
-              ))}
+              {(activeModel?.coefficients ?? modelConfig.coefficients).map(
+                (coefficient) => (
+                  <button
+                    key={coefficient.key}
+                    className={
+                      visibleQuantiles[coefficient.key as QuantileKey]
+                        ? "active"
+                        : ""
+                    }
+                    type="button"
+                    onClick={() =>
+                      toggleQuantile(coefficient.key as QuantileKey)
+                    }
+                  >
+                    {coefficient.label}
+                  </button>
+                ),
+              )}
             </div>
 
             <div className="chart-frame">
@@ -250,14 +404,15 @@ function App() {
           <div>
             <h2>Model</h2>
             <p>
-              Cowen's report asks whether Bitcoin's upper and lower price tails have changed differently across market
-              cycles. The core finding is asymmetric curvature: the upper tail bends inward over time, while the lower
-              tail remains close to a straight-line power law.
+              Cowen's report asks whether Bitcoin's upper and lower price tails
+              have changed differently across market cycles. The core finding is
+              asymmetric curvature: the upper tail bends inward over time, while
+              the lower tail remains close to a straight-line power law.
             </p>
           </div>
           <div className="formula-box" aria-label="Model formula">
-            <code>log10(P_tau(t)) = c_tau + a_tau x + b_tau x^2</code>
-            <span>x = ln(days since genesis) - 7.9914</span>
+            <code>{activeModel?.formula ?? "log10(P_tau(t)) = c_tau + a_tau x + b_tau x^2"}</code>
+            <span>{activeModel?.note ?? "x = ln(days since genesis) - 7.9914"}</span>
           </div>
         </section>
 
@@ -265,20 +420,27 @@ function App() {
           <div>
             <h2>How this site uses the paper</h2>
             <p>
-              The website is a visual companion, not a re-estimation engine. It takes the published Table 3 parameters
-              as fixed inputs, computes each quantile band by date, and overlays those bands on BTC/USD daily closes
-              starting in 2012.
+              The default view is a visual companion, not a re-estimation
+              engine. It takes the published Table 3 parameters as fixed inputs,
+              computes each quantile band by date, and overlays those bands on
+              BTC/USD daily closes starting in 2012. The comparison modes fit
+              Cowen-related model forms on the same site snapshot.
             </p>
           </div>
           <div className="paper-use-list">
             <p>
-              Historical price rows come from the daily BTC/USD data snapshot generated for this site. The model rows
-              come from the report's centered quadratic equation, using the January 1, 2009 genesis anchor and the
-              centering value 7.9914.
+              Historical price rows come from the daily BTC/USD data snapshot
+              generated for this site. The model rows in paper mode come from
+              the report's centered quadratic equation, using the January 1,
+              2009 genesis anchor and the centering value 7.9914. The fitted
+              modes reuse the paper's log10 close response, log-time variables,
+              quantile levels, check-loss fitting where applicable, and
+              monotone rearrangement.
             </p>
             <p>
-              After the seven raw quantile estimates are computed for a date, they are sorted into monotone order so the
-              plotted Q1 through Q99 bands do not cross on the chart grid.
+              After the seven raw quantile estimates are computed for a date,
+              they are sorted into monotone order so the plotted Q1 through Q99
+              bands do not cross on the chart grid.
             </p>
           </div>
         </section>
@@ -287,22 +449,40 @@ function App() {
           <div>
             <h2>Evidence</h2>
             <p>
-              The visual contrast is the paper's central claim: lower-tail curvature is near linear, while upper-tail
-              curvature bends downward more strongly as BTC's market scale grows.
+              The visual contrast is the paper's central claim: lower-tail
+              curvature is near linear, while upper-tail curvature bends
+              downward more strongly as BTC's market scale grows.
             </p>
           </div>
           <div className="evidence-grid">
-            <EvidencePoint label="Lower tail" value="-0.0241" detail="bLO, not statistically distinguishable from zero in the paper's bootstrap table." />
-            <EvidencePoint label="Upper tail" value="-0.3259" detail="bHI, significantly negative in the paper's block-bootstrap result." />
-            <EvidencePoint label="Asymmetry" value="-0.3018" detail="Delta b = bHI - bLO, reported as significantly negative." />
+            <EvidencePoint
+              label="Lower tail"
+              value="-0.0241"
+              detail="bLO, not statistically distinguishable from zero in the paper's bootstrap table."
+            />
+            <EvidencePoint
+              label="Upper tail"
+              value="-0.3259"
+              detail="bHI, significantly negative in the paper's block-bootstrap result."
+            />
+            <EvidencePoint
+              label="Asymmetry"
+              value="-0.3018"
+              detail="Delta b = bHI - bLO, reported as significantly negative."
+            />
           </div>
         </section>
 
         <section id="paper" className="content-section coefficients-section">
           <div className="section-heading-row">
             <div>
-              <h2>Paper Coefficients</h2>
-              <p>Table 3 coefficients are used directly; the site does not refit the regression.</p>
+              <h2>
+                {activeModel ? `${activeModel.label} Coefficients` : "Model Coefficients"}
+              </h2>
+              <p>
+                {activeModel?.note ??
+                  "Table 3 coefficients are used directly; the default site mode does not refit the regression."}
+              </p>
             </div>
             <a
               className="paper-link"
@@ -320,22 +500,24 @@ function App() {
               <thead>
                 <tr>
                   <th>Quantile</th>
-                  <th>c_tau</th>
-                  <th>a_tau</th>
-                  <th>b_tau</th>
+                  {(activeModel?.coefficients[0]?.parameters ?? []).map((parameter) => (
+                    <th key={parameter.label}>{parameter.label}</th>
+                  ))}
                   <th>Pseudo-R2</th>
                 </tr>
               </thead>
               <tbody>
-                {modelConfig.coefficients.map((coefficient) => (
-                  <tr key={coefficient.key}>
-                    <td>{coefficient.label}</td>
-                    <td>{formatNumber(coefficient.c, 3)}</td>
-                    <td>{formatNumber(coefficient.a, 3)}</td>
-                    <td>{formatNumber(coefficient.b, 4)}</td>
-                    <td>{formatNumber(coefficient.pseudoR2, 3)}</td>
-                  </tr>
-                ))}
+                {(activeModel?.coefficients ?? []).map(
+                  (coefficient) => (
+                    <tr key={coefficient.key}>
+                      <td>{coefficient.label}</td>
+                      {coefficient.parameters.map((parameter) => (
+                        <td key={parameter.label}>{formatParameter(parameter)}</td>
+                      ))}
+                      <td>{formatNumber(coefficient.pseudoR2, 3)}</td>
+                    </tr>
+                  ),
+                )}
               </tbody>
             </table>
           </div>
@@ -348,8 +530,9 @@ function App() {
           </div>
           <div className="caveat-copy">
             <p>
-              These bands describe the conditional distribution of BTC price level given time. They are useful for
-              reading long-run structure, but they should stay in that lane.
+              These bands describe the conditional distribution of BTC price
+              level given time. They are useful for reading long-run structure,
+              but they should stay in that lane.
             </p>
             <div className="caveat-items" aria-label="Model caveats">
               <span>Not a trading signal</span>
@@ -364,7 +547,15 @@ function App() {
   );
 }
 
-function Metric({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
+function Metric({
+  icon,
+  label,
+  value,
+}: {
+  icon: ReactNode;
+  label: string;
+  value: string;
+}) {
   return (
     <div className="metric-chip">
       {icon}
@@ -374,7 +565,15 @@ function Metric({ icon, label, value }: { icon: ReactNode; label: string; value:
   );
 }
 
-function DashboardTile({ label, value, detail }: { label: string; value: string; detail: string }) {
+function DashboardTile({
+  label,
+  value,
+  detail,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+}) {
   return (
     <article className="dashboard-tile">
       <span>{label}</span>
@@ -384,7 +583,15 @@ function DashboardTile({ label, value, detail }: { label: string; value: string;
   );
 }
 
-function EvidencePoint({ label, value, detail }: { label: string; value: string; detail: string }) {
+function EvidencePoint({
+  label,
+  value,
+  detail,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+}) {
   return (
     <article className="evidence-point">
       <span>{label}</span>
@@ -394,7 +601,16 @@ function EvidencePoint({ label, value, detail }: { label: string; value: string;
   );
 }
 
-function filterRows<T extends PriceRow | QuantileRow>(rows: T[], startDate: string, endDate: string): T[] {
+function formatParameter(parameter: ModelParameter): string {
+  if (typeof parameter.value === "string") return parameter.value;
+  return formatNumber(parameter.value, parameter.precision ?? 3);
+}
+
+function filterRows<T extends PriceRow | QuantileRow>(
+  rows: T[],
+  startDate: string,
+  endDate: string,
+): T[] {
   if (rows.length === 0 || endDate < startDate) return [];
 
   const startIndex = lowerBoundDate(rows, startDate);
@@ -402,7 +618,10 @@ function filterRows<T extends PriceRow | QuantileRow>(rows: T[], startDate: stri
   return rows.slice(startIndex, endIndex);
 }
 
-function lowerBoundDate<T extends PriceRow | QuantileRow>(rows: T[], date: string): number {
+function lowerBoundDate<T extends PriceRow | QuantileRow>(
+  rows: T[],
+  date: string,
+): number {
   let low = 0;
   let high = rows.length;
 
@@ -418,7 +637,10 @@ function lowerBoundDate<T extends PriceRow | QuantileRow>(rows: T[], date: strin
   return low;
 }
 
-function upperBoundDate<T extends PriceRow | QuantileRow>(rows: T[], date: string): number {
+function upperBoundDate<T extends PriceRow | QuantileRow>(
+  rows: T[],
+  date: string,
+): number {
   let low = 0;
   let high = rows.length;
 
@@ -439,16 +661,32 @@ function getRangeStart(latestDate: string, range: RangeKey): string {
   if (!definition?.years) return modelConfig.startDate;
 
   const latest = new Date(`${latestDate}T00:00:00.000Z`);
-  return new Date(Date.UTC(latest.getUTCFullYear() - definition.years, latest.getUTCMonth(), latest.getUTCDate()))
+  return new Date(
+    Date.UTC(
+      latest.getUTCFullYear() - definition.years,
+      latest.getUTCMonth(),
+      latest.getUTCDate(),
+    ),
+  )
     .toISOString()
     .slice(0, 10);
 }
 
-function getProjectionEndDate(latestDate: string, years: number, maxProjectionDate: string): string {
+function getProjectionEndDate(
+  latestDate: string,
+  years: number,
+  maxProjectionDate: string,
+): string {
   if (years === 0) return latestDate;
 
   const latest = new Date(`${latestDate}T00:00:00.000Z`);
-  const projected = new Date(Date.UTC(latest.getUTCFullYear() + years, latest.getUTCMonth(), latest.getUTCDate()))
+  const projected = new Date(
+    Date.UTC(
+      latest.getUTCFullYear() + years,
+      latest.getUTCMonth(),
+      latest.getUTCDate(),
+    ),
+  )
     .toISOString()
     .slice(0, 10);
 
