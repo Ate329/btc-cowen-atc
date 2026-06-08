@@ -2,6 +2,9 @@
 
 Interactive GitHub Pages site for visualizing BTC/USD daily closes against the asymmetric quadratic quantile bands from Benjamin Cowen's working paper, [_Asymmetric Tail Curvature in Bitcoin Price Quantiles_](https://benjamincowen.com/reports/asymmetric-tail-curvature-in-bitcoin-price-quantiles).
 
+## Details 
+`BTC Cowen ATC` is a Vite + React + TypeScript dashboard that overlays Bitcoin daily close prices with conditional quantile bands from Cowen’s working paper Asymmetric Tail Curvature in Bitcoin Price Quantiles. It generates a curated BTC/USD snapshot from CryptoCompare/CoinDesk histoday data, precomputes model quantiles (and daily projections to 2051-12-31), and renders an interactive log-scale D3 chart with model switching (paper coefficients vs linear-regression baseline), quantile visibility toggles, range brushing, projection controls, tooltip diagnostics, and a “not a trading signal” caveat-first UX.
+
 ## Local Development
 
 ```bash
