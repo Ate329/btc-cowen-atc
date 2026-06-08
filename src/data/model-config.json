@@ -1,0 +1,25 @@
+{
+  "version": "cowen-atc-table-3-2026-05-29",
+  "paperTitle": "Asymmetric Tail Curvature in Bitcoin Price Quantiles",
+  "paperVersion": "2026-05-29",
+  "anchorDate": "2009-01-01",
+  "startDate": "2012-01-01",
+  "projectionEndDate": "2051-12-31",
+  "mu": 7.9914,
+  "sourceNote": "Cowen working paper Table 3. Model bands are conditional price-level quantiles, not return-risk probabilities.",
+  "coefficients": [
+    { "key": "q1", "tau": 0.01, "label": "Q1", "c": 2.837, "a": 2.578, "b": -0.0241, "pseudoR2": 0.905 },
+    { "key": "q10", "tau": 0.1, "label": "Q10", "c": 2.933, "a": 2.552, "b": -0.0241, "pseudoR2": 0.891 },
+    { "key": "q25", "tau": 0.25, "label": "Q25", "c": 3.004, "a": 2.554, "b": -0.0241, "pseudoR2": 0.861 },
+    { "key": "q50", "tau": 0.5, "label": "Q50", "c": 3.214, "a": 2.482, "b": -0.1126, "pseudoR2": 0.808 },
+    { "key": "q75", "tau": 0.75, "label": "Q75", "c": 3.562, "a": 2.283, "b": -0.3259, "pseudoR2": 0.747 },
+    { "key": "q95", "tau": 0.95, "label": "Q95", "c": 3.897, "a": 1.964, "b": -0.3259, "pseudoR2": 0.654 },
+    { "key": "q99", "tau": 0.99, "label": "Q99", "c": 4.028, "a": 1.904, "b": -0.3259, "pseudoR2": 0.619 }
+  ],
+  "curvature": {
+    "lowerTail": -0.0241,
+    "median": -0.1126,
+    "upperTail": -0.3259,
+    "delta": -0.3018
+  }
+}

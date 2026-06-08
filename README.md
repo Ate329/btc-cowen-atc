@@ -1,0 +1,38 @@
+# BTC Cowen ATC
+
+Interactive GitHub Pages site for visualizing BTC/USD daily closes against the asymmetric quadratic quantile bands from Benjamin Cowen's working paper, [_Asymmetric Tail Curvature in Bitcoin Price Quantiles_](https://benjamincowen.com/reports/asymmetric-tail-curvature-in-bitcoin-price-quantiles).
+
+## Local Development
+
+```bash
+npm install
+npm run generate:data
+npm run dev
+```
+
+Local builds use Vite `base: "/"`. The GitHub Pages workflow sets `VITE_BASE_PATH` to `/<repo>/` so project Pages URLs such as `https://<user>.github.io/btc-atc/` load assets and data from the correct path. In local Vite dev mode, open `http://localhost:5173/`.
+
+## Data
+
+`scripts/generate-data.mjs` fetches BTC/USD daily OHLCV rows from the CryptoCompare/CoinDesk legacy `histoday` endpoint, starting on `2012-01-01`. It writes `public/data/btc-atc.json` with:
+
+- `prices`: historical daily BTC/USD OHLCV rows.
+- `quantiles`: daily model bands through `2051-12-31`, enough for the site's 25-year projection view.
+- `metadata`: source, generation timestamp, latest close date, warnings, and paper coefficient config.
+
+If the API refresh fails and an existing snapshot is present, the script keeps the existing file and exits successfully so GitHub Pages does not deploy a blank chart.
+
+## Model
+
+The site uses Cowen's Table 3 coefficients directly. It does not refit the regression.
+
+```text
+log10(P_tau(t)) = c_tau + a_tau x + b_tau x^2
+x = ln(days since 2009-01-01) - 7.9914
+```
+
+Per-date model outputs are monotone-rearranged before rendering.
+
+## Deploy
+
+`.github/workflows/pages.yml` builds and deploys on pushes to `main`, manual dispatch, and a daily `02:17 UTC` schedule. In GitHub repository settings, set Pages source to GitHub Actions.
