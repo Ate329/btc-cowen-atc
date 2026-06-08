@@ -22,7 +22,8 @@ describe("About page route", () => {
     expect(host.textContent).toContain("What this page is about");
     expect(host.textContent).toContain("The paper");
     expect(host.textContent).toContain("What this project does");
-    expect(host.textContent).toContain("Why I built this");
+    expect(host.textContent).toContain("Why?");
+    expect(host.textContent).toContain("I first heard about Cowen's paper from a video");
     expect(host.textContent).toContain("What this page does not do");
     const backLinks = [...host.querySelectorAll("a")].filter((item) =>
       item.textContent?.includes("Back to dashboard"),
