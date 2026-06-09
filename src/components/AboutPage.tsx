@@ -1,6 +1,7 @@
-import { ArrowLeft, BookOpen, ExternalLink, LineChart } from "lucide-react";
+import { ArrowLeft, BookOpen, ExternalLink } from "lucide-react";
 import type { ReactNode } from "react";
 import modelConfig from "../data/model-config.json";
+import { SiteHeader } from "./SiteHeader";
 
 function AboutSection({
   title,
@@ -27,26 +28,20 @@ function number(value: number, maximumFractionDigits = 4): string {
 export default function AboutPage() {
   return (
     <div className="app">
-      <header className="site-header">
-        <a className="brand" href="/?" aria-label="BTC Cowen ATC home">
-          <LineChart size={22} />
-          <span>BTC Cowen ATC</span>
+      <SiteHeader homeHref="/?" navLabel="About navigation">
+        <a href="/?" className="about-back-link">
+          <ArrowLeft size={14} />
+          Back to dashboard
         </a>
-        <nav aria-label="About navigation">
-          <a href="/?" className="about-back-link">
-            <ArrowLeft size={14} />
-            Back to dashboard
-          </a>
-          <a
-            href="https://benjamincowen.com/reports/asymmetric-tail-curvature-in-bitcoin-price-quantiles"
-            target="_blank"
-            rel="noreferrer"
-          >
-            Read Cowen paper
-            <ExternalLink size={14} />
-          </a>
-        </nav>
-      </header>
+        <a
+          href="https://benjamincowen.com/reports/asymmetric-tail-curvature-in-bitcoin-price-quantiles"
+          target="_blank"
+          rel="noreferrer"
+        >
+          Read Cowen paper
+          <ExternalLink size={14} />
+        </a>
+      </SiteHeader>
 
       <main className="about-main">
         <section className="about-hero">

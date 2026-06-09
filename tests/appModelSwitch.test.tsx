@@ -10,6 +10,9 @@ describe("App model switch", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     document.body.innerHTML = "";
+    document.documentElement.removeAttribute("data-theme");
+    document.documentElement.classList.remove("theme-ready");
+    window.localStorage.clear();
   });
 
   it("switches the coefficient table through all five model modes", async () => {

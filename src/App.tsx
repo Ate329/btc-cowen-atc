@@ -12,11 +12,11 @@ import {
   AlertTriangle,
   CalendarDays,
   ExternalLink,
-  LineChart,
   RefreshCw,
   Sigma,
 } from "lucide-react";
 import modelConfig from "./data/model-config.json";
+import { SiteHeader } from "./components/SiteHeader";
 import { QuantileChart } from "./components/QuantileChart";
 import { RangeBrush, type BrushWindow } from "./components/RangeBrush";
 import { useBtcData } from "./lib/useBtcData";
@@ -353,19 +353,13 @@ function App() {
 
   return (
     <div className="app">
-      <header className="site-header">
-        <a className="brand" href="#top" aria-label="BTC Cowen ATC home">
-          <LineChart size={22} />
-          <span>BTC Cowen ATC</span>
-        </a>
-        <nav aria-label="Primary navigation">
-          <a href="#model">Model</a>
-          <a href="#evidence">Evidence</a>
-          <a href="#paper">Paper</a>
-          <a href="#caveats">Caveats</a>
-          <a className="nav-button-link" href="/?page=about">About</a>
-        </nav>
-      </header>
+      <SiteHeader homeHref="#top" navLabel="Primary navigation">
+        <a href="#model">Model</a>
+        <a href="#evidence">Evidence</a>
+        <a href="#paper">Paper</a>
+        <a href="#caveats">Caveats</a>
+        <a className="nav-button-link" href="/?page=about">About</a>
+      </SiteHeader>
 
       <main id="top">
         <section className="hero-section">

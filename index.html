@@ -7,8 +7,52 @@
       name="description"
       content="An interactive visualization of Bitcoin price through asymmetric quantile bands from Cowen's 2026 working paper."
     />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="theme-color" content="#f6f5f0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" sizes="any" />
     <title>BTC Cowen ATC</title>
+    <script>
+      (() => {
+        const key = "btc-atc-theme";
+        const colors = { light: "#f6f5f0", dark: "#101716" };
+        let stored = null;
+
+        try {
+          stored = window.localStorage.getItem(key);
+        } catch {
+          stored = null;
+        }
+
+        const mediaQuery = window.matchMedia?.(
+          "(prefers-color-scheme: dark)",
+        );
+        const systemTheme = mediaQuery?.matches ? "dark" : "light";
+        const theme =
+          stored === "dark" || stored === "light" ? stored : systemTheme;
+
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.style.colorScheme = theme;
+        document
+          .querySelector('meta[name="theme-color"]')
+          ?.setAttribute("content", colors[theme]);
+
+        const style = document.createElement("style");
+        style.dataset.themeBoot = "true";
+        style.textContent = `
+          html,
+          body,
+          #root {
+            min-height: 100%;
+            background: ${colors[theme]};
+            color: ${theme === "dark" ? "#edf4ef" : "#1d211f"};
+          }
+
+          body {
+            margin: 0;
+          }
+        `;
+        document.head.appendChild(style);
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

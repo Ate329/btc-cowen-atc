@@ -49,13 +49,13 @@ const pathDigits = 1;
 const quantileRenderDensity = 1.5;
 
 const quantileColors: Record<QuantileKey, string> = {
-  q1: "#087f5b",
-  q10: "#2f9e44",
-  q25: "#74b816",
-  q50: "#c9911f",
-  q75: "#e67700",
-  q95: "#d9480f",
-  q99: "#b42318",
+  q1: "var(--quantile-q1)",
+  q10: "var(--quantile-q10)",
+  q25: "var(--quantile-q25)",
+  q50: "var(--quantile-q50)",
+  q75: "var(--quantile-q75)",
+  q95: "var(--quantile-q95)",
+  q99: "var(--quantile-q99)",
 };
 
 const bands: Array<{
@@ -456,8 +456,8 @@ export const QuantileChart = memo(function QuantileChart({
     >
       <defs>
         <linearGradient id="priceStroke" x1="0" x2="1" y1="0" y2="0">
-          <stop offset="0%" stopColor="#222" />
-          <stop offset="100%" stopColor="#8a3f12" />
+          <stop offset="0%" stopColor="var(--price-stroke-start)" />
+          <stop offset="100%" stopColor="var(--price-stroke-end)" />
         </linearGradient>
       </defs>
 
