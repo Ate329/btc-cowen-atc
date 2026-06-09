@@ -185,6 +185,7 @@
         const systemTheme = mediaQuery?.matches ? "dark" : "light";
         const theme =
           stored === "dark" || stored === "light" ? stored : systemTheme;
+        const ink = theme === "dark" ? "#edf4ef" : "#1d211f";
 
         document.documentElement.dataset.theme = theme;
         document.documentElement.style.colorScheme = theme;
@@ -199,8 +200,8 @@
           body,
           #root {
             min-height: 100%;
-            background: ${colors[theme]};
-            color: ${theme === "dark" ? "#edf4ef" : "#1d211f"};
+            background: var(--bg, ${colors[theme]});
+            color: var(--ink, ${ink});
           }
 
           body {

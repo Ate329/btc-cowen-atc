@@ -2,8 +2,9 @@
 
 Interactive GitHub Pages site for visualizing BTC/USD daily closes against the asymmetric quadratic quantile bands from Benjamin Cowen's working paper, [_Asymmetric Tail Curvature in Bitcoin Price Quantiles_](https://benjamincowen.com/reports/asymmetric-tail-curvature-in-bitcoin-price-quantiles).
 
-## Details 
-`BTC Cowen ATC` is a Vite + React + TypeScript dashboard that overlays Bitcoin daily close prices with conditional quantile bands from Cowen’s working paper Asymmetric Tail Curvature in Bitcoin Price Quantiles. It generates a curated BTC/USD snapshot from CryptoCompare/CoinDesk histoday data, precomputes model quantiles (and daily projections to 2051-12-31), and renders an interactive log-scale D3 chart with model switching (paper coefficients vs linear-regression baseline), quantile visibility toggles, range brushing, projection controls, tooltip diagnostics, and a “not a trading signal” caveat-first UX.
+## Details
+
+`BTC Cowen ATC` is a Vite + React + TypeScript dashboard that overlays Bitcoin daily close prices with conditional quantile bands from Cowen's working paper _Asymmetric Tail Curvature in Bitcoin Price Quantiles_. It generates a curated BTC/USD snapshot from CryptoCompare/CoinDesk histoday data, precomputes model quantiles (and daily projections to 2051-12-31), and renders an interactive log-scale D3 chart with model switching (paper coefficients vs linear-regression baseline), quantile visibility toggles, range brushing, projection controls, tooltip diagnostics, and a "not a trading signal" caveat-first UX.
 
 ## Local Development
 
@@ -43,3 +44,10 @@ Per-date model outputs are monotone-rearranged before rendering.
 ## Deploy
 
 `.github/workflows/pages.yml` builds and deploys on pushes to `main`, manual dispatch, and a daily `02:17 UTC` schedule. `public/CNAME` keeps the GitHub Pages custom domain set to `catc.zyhe.me`. In GitHub repository settings, set Pages source to GitHub Actions.
+
+## License and attribution
+
+The project source code is intended to be released under the [MIT License](LICENSE).
+
+This project is an implementation and visualization inspired by Benjamin Cowen's paper, [_Asymmetric Tail Curvature in Bitcoin Price Quantiles_](https://benjamincowen.com/reports/asymmetric-tail-curvature-in-bitcoin-price-quantiles).  
+The paper itself is © 2026 Benjamin Cowen, all rights reserved, and the paper text/figures are not provided under MIT.

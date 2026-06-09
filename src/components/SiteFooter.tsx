@@ -18,6 +18,10 @@ export function SiteFooter() {
           </a>
           .
         </p>
+        <p>
+          This site's source code is MIT-licensed; the underlying working paper is ©
+          2026 Benjamin Cowen, all rights reserved.
+        </p>
       </div>
       <div className="footer-links" aria-label="Project links">
         <a href={repositoryUrl} target="_blank" rel="noreferrer">

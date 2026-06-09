@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -56,6 +58,18 @@ describe("theme toggle", () => {
 
     expect(host.textContent).toContain("Back to dashboard");
     expect(getThemeToggle()).toBeTruthy();
+  });
+
+  it("keeps inherited app text tied to live theme variables", () => {
+    const indexHtml = readFileSync(resolve(process.cwd(), "index.html"), "utf8");
+    const appStyles = readFileSync(
+      resolve(process.cwd(), "src/styles.css"),
+      "utf8",
+    );
+
+    expect(indexHtml).toContain("color: var(--ink, ${ink});");
+    expect(indexHtml).toContain("background: var(--bg, ${colors[theme]});");
+    expect(appStyles).toMatch(/\.app\s*{[^}]*color:\s*var\(--ink\);/s);
   });
 });
 
