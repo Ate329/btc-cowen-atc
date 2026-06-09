@@ -1,6 +1,7 @@
 import { ArrowLeft, BookOpen, ExternalLink } from "lucide-react";
 import type { ReactNode } from "react";
 import modelConfig from "../data/model-config.json";
+import { SiteFooter } from "./SiteFooter";
 import { SiteHeader } from "./SiteHeader";
 
 function AboutSection({
@@ -209,6 +210,7 @@ export default function AboutPage() {
           </ul>
         </AboutSection>
       </main>
+      <SiteFooter />
     </div>
   );
 }

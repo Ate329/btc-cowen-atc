@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import modelConfig from "./data/model-config.json";
 import { SiteHeader } from "./components/SiteHeader";
+import { SiteFooter } from "./components/SiteFooter";
 import { QuantileChart } from "./components/QuantileChart";
 import { RangeBrush, type BrushWindow } from "./components/RangeBrush";
 import { useBtcData } from "./lib/useBtcData";
@@ -723,6 +724,7 @@ function App() {
           </div>
         </section>
       </main>
+      <SiteFooter />
     </div>
   );
 }

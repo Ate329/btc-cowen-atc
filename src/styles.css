@@ -429,6 +429,83 @@ main {
   padding: 28px clamp(14px, 3vw, 42px) 72px;
 }
 
+.site-footer {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  width: min(1500px, 100%);
+  margin: -40px auto 0;
+  border-top: 1px solid var(--border-soft);
+  padding: 26px clamp(14px, 3vw, 42px) 34px;
+}
+
+.footer-credit {
+  display: grid;
+  gap: 7px;
+  max-width: 820px;
+  min-width: 0;
+}
+
+.footer-credit span {
+  color: var(--copper);
+  font-size: 11px;
+  font-weight: 820;
+  text-transform: uppercase;
+}
+
+.footer-credit p {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.footer-credit a,
+.footer-links a {
+  color: var(--link);
+}
+
+.footer-credit a {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.footer-credit a svg,
+.footer-links a svg {
+  flex: 0 0 auto;
+}
+
+.footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.footer-links a {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 8px 10px;
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.footer-links a:hover,
+.footer-links a:focus-visible {
+  border-color: var(--border-strong);
+  color: var(--ink);
+}
+
 .hero-section {
   display: grid;
   gap: 18px;
@@ -1408,6 +1485,15 @@ td {
     align-items: flex-start;
     flex-direction: column;
     gap: 12px;
+  }
+
+  .site-footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .footer-links {
+    justify-content: flex-start;
   }
 
   .site-header-right {

@@ -29,10 +29,20 @@ describe("About page route", () => {
     expect(host.textContent).toContain("Why?");
     expect(host.textContent).toContain("I first heard about Cowen's paper from a video");
     expect(host.textContent).toContain("What this page does not do");
+    expect(host.textContent).toContain("GitHub repo");
     const backLinks = [...host.querySelectorAll("a")].filter((item) =>
       item.textContent?.includes("Back to dashboard"),
     );
     expect(backLinks.length).toBe(1);
+    expect(
+      host.querySelector(
+        'a[href="https://benjamincowen.com/reports/asymmetric-tail-curvature-in-bitcoin-price-quantiles"]',
+      ),
+    ).toBeTruthy();
+    expect(
+      host.querySelector('a[href="https://github.com/Ate329/btc-cowen-atc"]'),
+    ).toBeTruthy();
+    expect(host.querySelector('a[href="https://github.zyhe.me"]')).toBeTruthy();
     expect(host.querySelector('button[role="switch"]')).toBeTruthy();
 
     act(() => {
