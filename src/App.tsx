@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -32,6 +33,11 @@ import {
   formatPercent,
 } from "./lib/format";
 import type {
+  ModelWorkerRequest,
+  ModelWorkerResponse,
+} from "./lib/modelWorkerTypes";
+import type {
+  BtcAtcDataset,
   ModelMode,
   ModelParameter,
   PriceRow,
@@ -67,6 +73,13 @@ const modelModes: Array<{ key: ModelMode; label: string }> = [
   { key: "stretchedExponential", label: "Stretch Exp" },
 ];
 
+const fittedModelWarmOrder: Array<Exclude<ModelMode, "paper">> = [
+  "stretchedExponential",
+  "asymmetricRefit",
+  "symmetricQuadratic",
+  "linearRegression",
+];
+
 const defaultVisibleQuantiles = quantileKeys.reduce(
   (state, key) => ({ ...state, [key]: true }),
   {} as Record<QuantileKey, boolean>,
@@ -75,6 +88,13 @@ const defaultVisibleQuantiles = quantileKeys.reduce(
 function App() {
   const dataState = useBtcData();
   const modelCacheRef = useRef(new Map<string, QuantileModelResult>());
+  const activeModelWorkerRef = useRef<{
+    cacheKey: string;
+    request: ModelWorkerRequest;
+    worker: Worker;
+  } | null>(null);
+  const modelWorkerQueueRef = useRef<ModelWorkerRequest[]>([]);
+  const queuedModelKeysRef = useRef(new Set<string>());
   const [modelMode, setModelMode] = useState<ModelMode>("paper");
   const [range, setRange] = useState<RangeKey>("all");
   const [projectionYears, setProjectionYears] = useState(0);
@@ -82,21 +102,162 @@ function App() {
   const [visibleQuantiles, setVisibleQuantiles] = useState(
     defaultVisibleQuantiles,
   );
+  const [modelCacheVersion, setModelCacheVersion] = useState(0);
+  const [pendingModelKeys, setPendingModelKeys] = useState<Set<string>>(() => new Set());
+  const [modelErrors, setModelErrors] = useState<Record<string, string>>({});
   const [, startBrushTransition] = useTransition();
+  const [, startChartTransition] = useTransition();
+
+  const startNextModelWorker = useCallback(() => {
+    if (activeModelWorkerRef.current || !canUseModelWorker()) return;
+
+    const request = modelWorkerQueueRef.current.shift();
+    if (!request) return;
+
+    queuedModelKeysRef.current.delete(request.cacheKey);
+
+    const worker = new Worker(new URL("./workers/modelWorker.ts", import.meta.url), {
+      type: "module",
+    });
+    activeModelWorkerRef.current = {
+      cacheKey: request.cacheKey,
+      request,
+      worker,
+    };
+
+    worker.onmessage = (event: MessageEvent<ModelWorkerResponse>) => {
+      const response = event.data;
+      worker.terminate();
+      activeModelWorkerRef.current = null;
+
+      if (response.model) {
+        modelCacheRef.current.set(response.cacheKey, response.model);
+      }
+
+      setPendingModelKeys((current) => {
+        const next = new Set(current);
+        next.delete(response.cacheKey);
+        return next;
+      });
+      setModelErrors((current) => {
+        const next = { ...current };
+        if (response.error) {
+          next[response.cacheKey] = response.error;
+        } else {
+          delete next[response.cacheKey];
+        }
+        return next;
+      });
+      setModelCacheVersion((version) => version + 1);
+      startNextModelWorker();
+    };
+
+    worker.onerror = (event) => {
+      worker.terminate();
+      activeModelWorkerRef.current = null;
+      setPendingModelKeys((current) => {
+        const next = new Set(current);
+        next.delete(request.cacheKey);
+        return next;
+      });
+      setModelErrors((current) => ({
+        ...current,
+        [request.cacheKey]: event.message || "Could not estimate model",
+      }));
+      setModelCacheVersion((version) => version + 1);
+      startNextModelWorker();
+    };
+
+    worker.postMessage(request);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      activeModelWorkerRef.current?.worker.terminate();
+      activeModelWorkerRef.current = null;
+      modelWorkerQueueRef.current = [];
+      queuedModelKeysRef.current.clear();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (dataState.status !== "ready" || !canUseModelWorker()) return;
+
+    const warmModes = [
+      modelMode,
+      ...fittedModelWarmOrder.filter((mode) => mode !== modelMode),
+    ].filter((mode): mode is Exclude<ModelMode, "paper"> => mode !== "paper");
+
+    for (const mode of warmModes) {
+      const cacheKey = buildModelCacheKey(mode, dataState.data);
+      const activeJob = activeModelWorkerRef.current;
+      const isSelectedMode = mode === modelMode;
+
+      if (
+        isSelectedMode &&
+        activeJob &&
+        activeJob.cacheKey !== cacheKey &&
+        !modelCacheRef.current.has(cacheKey)
+      ) {
+        activeJob.worker.terminate();
+        activeModelWorkerRef.current = null;
+        modelWorkerQueueRef.current = [
+          ...modelWorkerQueueRef.current.filter((request) => request.cacheKey !== activeJob.cacheKey),
+          activeJob.request,
+        ];
+        queuedModelKeysRef.current.add(activeJob.cacheKey);
+      }
+
+      if (
+        modelCacheRef.current.has(cacheKey) ||
+        activeModelWorkerRef.current?.cacheKey === cacheKey ||
+        queuedModelKeysRef.current.has(cacheKey)
+      ) {
+        if (isSelectedMode) {
+          const queuedIndex = modelWorkerQueueRef.current.findIndex(
+            (request) => request.cacheKey === cacheKey,
+          );
+
+          if (queuedIndex > 0) {
+            const [request] = modelWorkerQueueRef.current.splice(queuedIndex, 1);
+            modelWorkerQueueRef.current.unshift(request);
+          }
+        }
+        continue;
+      }
+
+      const request: ModelWorkerRequest = {
+        cacheKey,
+        mode,
+        prices: dataState.data.prices,
+        startDate: dataState.data.metadata.startDate,
+        endDate: dataState.data.metadata.projectionEndDate,
+      };
+
+      if (isSelectedMode) {
+        modelWorkerQueueRef.current.unshift(request);
+      } else {
+        modelWorkerQueueRef.current.push(request);
+      }
+      queuedModelKeysRef.current.add(cacheKey);
+      setPendingModelKeys((current) => new Set(current).add(cacheKey));
+    }
+
+    startNextModelWorker();
+  }, [dataState, modelMode, startNextModelWorker]);
 
   const activeModel = useMemo(() => {
     if (dataState.status !== "ready") return null;
 
-    const cacheKey = [
-      modelMode,
-      dataState.data.metadata.latestCloseDate,
-      dataState.data.prices.length,
-      dataState.data.quantiles.length,
-    ].join(":");
+    const cacheKey = buildModelCacheKey(modelMode, dataState.data);
     const cached = modelCacheRef.current.get(cacheKey);
 
     if (cached) {
       return cached;
+    }
+
+    if (modelMode !== "paper" && canUseModelWorker()) {
+      return null;
     }
 
     const model = estimateModel(
@@ -108,7 +269,16 @@ function App() {
     );
     modelCacheRef.current.set(cacheKey, model);
     return model;
-  }, [dataState, modelMode]);
+  }, [dataState, modelMode, modelCacheVersion]);
+
+  const activeModelCacheKey = dataState.status === "ready" ? buildModelCacheKey(modelMode, dataState.data) : "";
+  const activeModelLabel = modelModes.find((mode) => mode.key === modelMode)?.label ?? "Model";
+  const activeModelError = activeModelCacheKey ? modelErrors[activeModelCacheKey] : undefined;
+  const isActiveModelPending =
+    dataState.status === "ready" &&
+    !activeModel &&
+    !activeModelError &&
+    (pendingModelKeys.has(activeModelCacheKey) || canUseModelWorker());
 
   const baseChartData = useMemo(() => {
     if (dataState.status !== "ready" || !activeModel) return null;
@@ -301,8 +471,10 @@ function App() {
                       className={range === item.key ? "active" : ""}
                       type="button"
                       onClick={() => {
-                        setRange(item.key);
-                        setBrushWindow(null);
+                        startChartTransition(() => {
+                          setRange(item.key);
+                          setBrushWindow(null);
+                        });
                       }}
                     >
                       {item.label}
@@ -334,8 +506,10 @@ function App() {
                         }
                         aria-pressed={projectionYears === option.years}
                         onClick={() => {
-                          setProjectionYears(option.years);
-                          setBrushWindow(null);
+                          startChartTransition(() => {
+                            setProjectionYears(option.years);
+                            setBrushWindow(null);
+                          });
                         }}
                       >
                         {option.label}
@@ -379,6 +553,17 @@ function App() {
                   <AlertTriangle size={28} />
                   <strong>Data snapshot unavailable</strong>
                   <span>{dataState.error}</span>
+                </div>
+              ) : activeModelError ? (
+                <div className="chart-state error-state">
+                  <AlertTriangle size={28} />
+                  <strong>{activeModelLabel} unavailable</strong>
+                  <span>{activeModelError}</span>
+                </div>
+              ) : isActiveModelPending ? (
+                <div className="chart-state">
+                  <RefreshCw className="spin" size={28} />
+                  <strong>Preparing {activeModelLabel}</strong>
                 </div>
               ) : (
                 <div className="chart-state">
@@ -478,11 +663,11 @@ function App() {
           <div className="section-heading-row">
             <div>
               <h2>
-                {activeModel ? `${activeModel.label} Coefficients` : "Model Coefficients"}
+                {activeModel ? `${activeModel.label} Coefficients` : `${activeModelLabel} Coefficients`}
               </h2>
               <p>
                 {activeModel?.note ??
-                  "Table 3 coefficients are used directly; the default site mode does not refit the regression."}
+                  (activeModelError || `Preparing ${activeModelLabel.toLowerCase()} fit.`)}
               </p>
             </div>
             <a
@@ -708,6 +893,19 @@ function toQuantileValues(row: QuantileRow): QuantileValues {
 
 function minDate(first: string, second: string): string {
   return first < second ? first : second;
+}
+
+function buildModelCacheKey(mode: ModelMode, data: BtcAtcDataset): string {
+  return [
+    mode,
+    data.metadata.latestCloseDate,
+    data.prices.length,
+    data.quantiles.length,
+  ].join(":");
+}
+
+function canUseModelWorker(): boolean {
+  return typeof Worker !== "undefined" && import.meta.env.MODE !== "test";
 }
 
 export default App;

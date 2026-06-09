@@ -1,47 +1,83 @@
+const currencyFormatter = {
+  zeroDecimals: new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }),
+  twoDecimals: new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 2,
+  }),
+  fourDecimals: new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 4,
+  }),
+};
+
+const compactCurrencyFormatter = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  notation: "compact",
+  maximumFractionDigits: 2,
+});
+
+const percentFormatter = new Intl.NumberFormat("en-US", {
+  style: "percent",
+  maximumFractionDigits: 1,
+  signDisplay: "exceptZero",
+});
+
+const numberFormatter = new Intl.NumberFormat("en-US", {
+  maximumFractionDigits: 2,
+});
+const numberFormatterByDigits = new Map<number, Intl.NumberFormat>();
+
+function getNumberFormatter(maximumFractionDigits: number): Intl.NumberFormat {
+  if (maximumFractionDigits === 2) return numberFormatter;
+
+  const cached = numberFormatterByDigits.get(maximumFractionDigits);
+  if (cached) return cached;
+
+  const next = new Intl.NumberFormat("en-US", { maximumFractionDigits });
+  numberFormatterByDigits.set(maximumFractionDigits, next);
+  return next;
+}
+
+const dateLabelFormatter = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+  timeZone: "UTC",
+});
+
 export function formatCurrency(value: number): string {
   if (!Number.isFinite(value)) return "n/a";
 
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: value >= 100 ? 0 : value >= 1 ? 2 : 4,
-  }).format(value);
+  if (value >= 100) return currencyFormatter.zeroDecimals.format(value);
+  if (value >= 1) return currencyFormatter.twoDecimals.format(value);
+  return currencyFormatter.fourDecimals.format(value);
 }
 
 export function formatCompactCurrency(value: number): string {
   if (!Number.isFinite(value)) return "n/a";
 
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    notation: "compact",
-    maximumFractionDigits: 2,
-  }).format(value);
+  return compactCurrencyFormatter.format(value);
 }
 
 export function formatPercent(value: number): string {
   if (!Number.isFinite(value)) return "n/a";
 
-  return new Intl.NumberFormat("en-US", {
-    style: "percent",
-    maximumFractionDigits: 1,
-    signDisplay: "exceptZero",
-  }).format(value);
+  return percentFormatter.format(value);
 }
 
 export function formatNumber(value: number, maximumFractionDigits = 2): string {
   if (!Number.isFinite(value)) return "n/a";
 
-  return new Intl.NumberFormat("en-US", {
-    maximumFractionDigits,
-  }).format(value);
+  return getNumberFormatter(maximumFractionDigits).format(value);
 }
 
 export function formatDateLabel(date: string): string {
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    timeZone: "UTC",
-  }).format(new Date(`${date}T00:00:00.000Z`));
+  return dateLabelFormatter.format(new Date(`${date}T00:00:00.000Z`));
 }

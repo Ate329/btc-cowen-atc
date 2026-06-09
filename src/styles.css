@@ -584,27 +584,32 @@ h2 {
   stroke-dasharray: 3 4;
 }
 
+.tooltip-layer {
+  pointer-events: none;
+}
+
 .tooltip-box {
   fill: rgba(255, 255, 255, 0.96);
   stroke: rgba(29, 33, 31, 0.12);
+  stroke-width: 0.8;
 }
 
 .tooltip-title {
   fill: #1d211f;
-  font-size: 13px;
-  font-weight: 760;
+  font-size: 14px;
+  font-weight: 750;
 }
 
 .tooltip-value {
   fill: var(--copper);
-  font-size: 13px;
-  font-weight: 780;
+  font-size: 14px;
+  font-weight: 760;
 }
 
 .tooltip-copy {
   fill: var(--muted);
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 640;
 }
 
 .chart-state {

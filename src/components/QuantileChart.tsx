@@ -1,8 +1,22 @@
-import { memo, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
+import { memo, useEffect, useMemo, useRef, type PointerEvent } from "react";
 import * as d3 from "d3";
+import {
+  sampleExtremaRowsByXBucket,
+  sampleRowsByCount,
+} from "../lib/chartSampling";
+import { withPathDigits } from "../lib/d3Path";
 import { classifyPriceBand } from "../lib/quantileModel";
-import { formatCompactCurrency, formatCurrency, formatDateLabel } from "../lib/format";
-import type { PriceRow, QuantileKey, QuantileRow, QuantileValues } from "../lib/types";
+import {
+  formatCompactCurrency,
+  formatCurrency,
+  formatDateLabel,
+} from "../lib/format";
+import type {
+  PriceRow,
+  QuantileKey,
+  QuantileRow,
+  QuantileValues,
+} from "../lib/types";
 
 type ChartProps = {
   prices: PriceRow[];
@@ -12,15 +26,15 @@ type ChartProps = {
 
 type ParsedPrice = PriceRow & { dateValue: Date };
 type ParsedQuantile = QuantileRow & { dateValue: Date };
-type QuantilePathRow = ParsedQuantile & { current: number };
 
 type TooltipState = {
   x: number;
   y: number;
   date: string;
-  close: number;
-  quantiles: QuantileValues;
-  band: string;
+  close: number | null;
+  quantile: ParsedQuantile;
+  isProjected: boolean;
+  index: number;
 };
 
 type QuantileLinePath = { key: QuantileKey; d: string };
@@ -31,6 +45,8 @@ const height = 488;
 const margin = { top: 22, right: 82, bottom: 48, left: 74 };
 const chartWidth = width - margin.left - margin.right;
 const chartHeight = height - margin.top - margin.bottom;
+const pathDigits = 1;
+const quantileRenderDensity = 1.5;
 
 const quantileColors: Record<QuantileKey, string> = {
   q1: "#087f5b",
@@ -42,7 +58,11 @@ const quantileColors: Record<QuantileKey, string> = {
   q99: "#b42318",
 };
 
-const bands: Array<{ lower: QuantileKey; upper: QuantileKey; className: string }> = [
+const bands: Array<{
+  lower: QuantileKey;
+  upper: QuantileKey;
+  className: string;
+}> = [
   { lower: "q1", upper: "q10", className: "band band-green-1" },
   { lower: "q10", upper: "q25", className: "band band-green-2" },
   { lower: "q25", upper: "q50", className: "band band-amber-1" },
@@ -51,25 +71,62 @@ const bands: Array<{ lower: QuantileKey; upper: QuantileKey; className: string }
   { lower: "q95", upper: "q99", className: "band band-red-2" },
 ];
 
+const quantileLabelRows: Array<{ key: QuantileKey; label: string }> = [
+  { key: "q1", label: "Q1" },
+  { key: "q10", label: "Q10" },
+  { key: "q25", label: "Q25" },
+  { key: "q50", label: "Q50" },
+  { key: "q75", label: "Q75" },
+  { key: "q95", label: "Q95" },
+  { key: "q99", label: "Q99" },
+];
+
+const tooltipLayout = {
+  width: 190,
+  height: 196,
+  titleY: 24,
+  closeY: 52,
+  bandY: 75,
+  rowStartY: 96,
+  rowGap: 15,
+};
+
 type BandPath = (typeof bands)[number] & { d: string };
 
-export const QuantileChart = memo(function QuantileChart({ prices, quantiles, visibleQuantiles }: ChartProps) {
+export const QuantileChart = memo(function QuantileChart({
+  prices,
+  quantiles,
+  visibleQuantiles,
+}: ChartProps) {
   const svgRef = useRef<SVGSVGElement | null>(null);
+  const tooltipLayerRef = useRef<SVGGElement | null>(null);
+  const tooltipBoxGroupRef = useRef<SVGGElement | null>(null);
+  const hoverDotRef = useRef<SVGCircleElement | null>(null);
+  const tooltipTitleRef = useRef<SVGTextElement | null>(null);
+  const tooltipValueRef = useRef<SVGTextElement | null>(null);
+  const tooltipBandRef = useRef<SVGTextElement | null>(null);
+  const tooltipQuantileRefs = useRef<Array<SVGTextElement | null>>([]);
   const tooltipRafRef = useRef<number | null>(null);
   const pendingTooltipRef = useRef<TooltipState | null>(null);
   const lastTooltipDateRef = useRef("");
-  const [tooltip, setTooltip] = useState<TooltipState | null>(null);
+  const lastTooltipIndexRef = useRef(-1);
+  const pendingTooltipIndexRef = useRef(-1);
 
   useEffect(() => {
     return () => {
       if (tooltipRafRef.current !== null) {
         window.cancelAnimationFrame(tooltipRafRef.current);
       }
+      pendingTooltipRef.current = null;
+      lastTooltipDateRef.current = "";
+      lastTooltipIndexRef.current = -1;
+      pendingTooltipIndexRef.current = -1;
     };
   }, []);
 
   const parsedPrices = useMemo(
-    () => prices.map((price) => ({ ...price, dateValue: parseDate(price.date) })),
+    () =>
+      prices.map((price) => ({ ...price, dateValue: parseDate(price.date) })),
     [prices],
   );
 
@@ -78,30 +135,55 @@ export const QuantileChart = memo(function QuantileChart({ prices, quantiles, vi
     [quantiles],
   );
 
-  const quantileByDate = useMemo(() => {
-    const map = new Map<string, QuantileRow>();
-    quantiles.forEach((row) => map.set(row.date, row));
+  const quantileTimes = useMemo(
+    () => parsedQuantiles.map((row) => row.dateValue.getTime()),
+    [parsedQuantiles],
+  );
+
+  const closeByDate = useMemo(() => {
+    const map = new Map<string, ParsedPrice>();
+    parsedPrices.forEach((price) => map.set(price.date, price));
     return map;
-  }, [quantiles]);
+  }, [parsedPrices]);
 
   const xDomain = useMemo<[Date, Date]>(() => {
-    const first = parsedQuantiles[0]?.dateValue ?? parsedPrices[0]?.dateValue ?? new Date();
-    const last = parsedQuantiles.at(-1)?.dateValue ?? parsedPrices.at(-1)?.dateValue ?? new Date();
+    const first =
+      parsedQuantiles[0]?.dateValue ?? parsedPrices[0]?.dateValue ?? new Date();
+    const last =
+      parsedQuantiles.at(-1)?.dateValue ??
+      parsedPrices.at(-1)?.dateValue ??
+      new Date();
     return [first, last];
   }, [parsedPrices, parsedQuantiles]);
 
   const yDomain = useMemo<[number, number]>(() => {
-    const values = [
-      ...parsedPrices.map((price) => price.close),
-      ...parsedQuantiles.flatMap((row) =>
-        (Object.keys(visibleQuantiles) as QuantileKey[])
-          .filter((key) => visibleQuantiles[key])
-          .map((key) => row[key]),
-      ),
-    ].filter((value) => Number.isFinite(value) && value > 0);
+    let min = Number.POSITIVE_INFINITY;
+    let max = Number.NEGATIVE_INFINITY;
+    const visibleKeys = Object.keys(visibleQuantiles) as QuantileKey[];
 
-    const min = d3.min(values) ?? 1;
-    const max = d3.max(values) ?? 100_000;
+    for (const price of parsedPrices) {
+      if (Number.isFinite(price.close) && price.close > 0) {
+        min = Math.min(min, price.close);
+        max = Math.max(max, price.close);
+      }
+    }
+
+    for (const row of parsedQuantiles) {
+      for (const key of visibleKeys) {
+        if (!visibleQuantiles[key]) continue;
+
+        const value = row[key];
+        if (Number.isFinite(value) && value > 0) {
+          min = Math.min(min, value);
+          max = Math.max(max, value);
+        }
+      }
+    }
+
+    if (!Number.isFinite(min) || !Number.isFinite(max)) {
+      min = 1;
+      max = 100_000;
+    }
 
     return [min * 0.72, max * 1.26];
   }, [parsedPrices, parsedQuantiles, visibleQuantiles]);
@@ -116,37 +198,91 @@ export const QuantileChart = memo(function QuantileChart({ prices, quantiles, vi
     [yDomain],
   );
 
+  const xDomainMs = useMemo<[number, number]>(
+    () => [xDomain[0].getTime(), xDomain[1].getTime()],
+    [xDomain],
+  );
+
+  const hoverPoints = useMemo<TooltipState[]>(() => {
+    return parsedQuantiles.map((quantile, index) => {
+      const observedPrice = closeByDate.get(quantile.date);
+      const isProjected = !observedPrice;
+      const close = observedPrice?.close ?? null;
+
+      return {
+        x: xScale(quantile.dateValue),
+        y: yScale(close ?? quantile.q50),
+        date: quantile.date,
+        close,
+        quantile,
+        isProjected,
+        index,
+      };
+    });
+  }, [closeByDate, parsedQuantiles, xScale, yScale]);
+
+  useEffect(() => {
+    hideTooltip();
+  }, [hoverPoints]);
+
   const xTicks = useMemo(() => xScale.ticks(7), [xScale]);
   const yTicks = useMemo(() => {
     const [min, max] = yDomain;
-    return [0.01, 0.1, 1, 10, 100, 1_000, 10_000, 100_000, 1_000_000, 10_000_000].filter(
-      (tick) => tick >= min && tick <= max,
-    );
+    return [
+      0.01, 0.1, 1, 10, 100, 1_000, 10_000, 100_000, 1_000_000, 10_000_000,
+    ].filter((tick) => tick >= min && tick <= max);
   }, [yDomain]);
 
-  const pricePath = useMemo(() => {
-    const line = d3
-      .line<ParsedPrice>()
-      .defined((d) => Number.isFinite(d.close) && d.close > 0)
-      .x((d) => xScale(d.dateValue))
-      .y((d) => yScale(d.close))
-      .curve(d3.curveMonotoneX);
+  const renderPrices = useMemo(
+    () =>
+      sampleExtremaRowsByXBucket(
+        parsedPrices,
+        (row) => xScale(row.dateValue),
+        (row) => row.close,
+        Math.ceil(chartWidth),
+      ),
+    [parsedPrices, xScale],
+  );
 
-    return line(parsedPrices) ?? "";
-  }, [parsedPrices, xScale, yScale]);
+  const renderQuantiles = useMemo(
+    () =>
+      sampleRowsByCount(
+        parsedQuantiles,
+        Math.ceil(chartWidth * quantileRenderDensity),
+      ),
+    [parsedQuantiles],
+  );
+
+  const pricePath = useMemo(() => {
+    const line = withPathDigits(
+      d3
+        .line<ParsedPrice>()
+        .defined((d) => Number.isFinite(d.close) && d.close > 0)
+        .x((d) => xScale(d.dateValue))
+        .y((d) => yScale(d.close))
+        .curve(d3.curveMonotoneX),
+      pathDigits,
+    );
+
+    return line(renderPrices) ?? "";
+  }, [renderPrices, xScale, yScale]);
 
   const quantilePaths = useMemo(() => {
-    const line = d3
-      .line<QuantilePathRow>()
-      .x((d) => xScale(d.dateValue))
-      .y((d) => yScale(d.current))
-      .curve(d3.curveMonotoneX);
-
     return (Object.keys(visibleQuantiles) as QuantileKey[]).map((key) => {
-      const rows = parsedQuantiles.map((row) => ({ ...row, current: row[key] }));
-      return { key, d: visibleQuantiles[key] ? line(rows) ?? "" : "" };
+      if (!visibleQuantiles[key]) return { key, d: "" };
+
+      const line = withPathDigits(
+        d3
+          .line<ParsedQuantile>()
+          .x((d) => xScale(d.dateValue))
+          .y((d) => yScale(d[key]))
+          .curve(d3.curveMonotoneX),
+        pathDigits,
+      );
+
+      return { key, d: line(renderQuantiles) ?? "" };
     });
-  }, [parsedQuantiles, visibleQuantiles, xScale, yScale]);
+  }, [renderQuantiles, visibleQuantiles, xScale, yScale]);
 
   const bandPaths = useMemo(() => {
     return bands.map((band) => {
@@ -154,58 +290,71 @@ export const QuantileChart = memo(function QuantileChart({ prices, quantiles, vi
         return { ...band, d: "" };
       }
 
-      const area = d3
-        .area<ParsedQuantile>()
-        .x((d) => xScale(d.dateValue))
-        .y0((d) => yScale(d[band.lower]))
-        .y1((d) => yScale(d[band.upper]))
-        .curve(d3.curveMonotoneX);
+      const area = withPathDigits(
+        d3
+          .area<ParsedQuantile>()
+          .x((d) => xScale(d.dateValue))
+          .y0((d) => yScale(d[band.lower]))
+          .y1((d) => yScale(d[band.upper]))
+          .curve(d3.curveMonotoneX),
+        pathDigits,
+      );
 
-      return { ...band, d: area(parsedQuantiles) ?? "" };
+      return { ...band, d: area(renderQuantiles) ?? "" };
     });
-  }, [parsedQuantiles, visibleQuantiles, xScale, yScale]);
+  }, [renderQuantiles, visibleQuantiles, xScale, yScale]);
 
   const latestPrice = parsedPrices.at(-1);
-  const latestQuantile = latestPrice ? quantileByDate.get(latestPrice.date) : undefined;
   const latestPoint = useMemo<LatestPoint | null>(
-    () => (latestPrice ? { x: xScale(latestPrice.dateValue), y: yScale(latestPrice.close) } : null),
+    () =>
+      latestPrice
+        ? { x: xScale(latestPrice.dateValue), y: yScale(latestPrice.close) }
+        : null,
     [latestPrice, xScale, yScale],
   );
 
   function handlePointerMove(event: PointerEvent<SVGSVGElement>) {
-    if (!svgRef.current || parsedPrices.length === 0) return;
+    if (!svgRef.current || hoverPoints.length === 0) return;
 
     const [rawX, rawY] = d3.pointer(event, svgRef.current);
     const localX = rawX - margin.left;
     const localY = rawY - margin.top;
 
-    if (localX < 0 || localX > chartWidth || localY < 0 || localY > chartHeight) {
+    if (
+      localX < 0 ||
+      localX > chartWidth ||
+      localY < 0 ||
+      localY > chartHeight
+    ) {
       return;
     }
 
-    const date = xScale.invert(localX);
-    const bisect = d3.bisector<ParsedPrice, Date>((d) => d.dateValue).center;
-    const index = bisect(parsedPrices, date);
-    const price = parsedPrices[Math.max(0, Math.min(index, parsedPrices.length - 1))];
-    const qRow = quantileByDate.get(price.date) ?? latestQuantile;
+    const [startTime, endTime] = xDomainMs;
+    const hoveredTime =
+      startTime + (localX / chartWidth) * (endTime - startTime);
+    const index = d3.bisectCenter(quantileTimes, hoveredTime);
+    const clampedIndex = Math.max(0, Math.min(index, hoverPoints.length - 1));
 
-    if (!qRow) return;
+    if (
+      clampedIndex === lastTooltipIndexRef.current ||
+      clampedIndex === pendingTooltipIndexRef.current
+    ) {
+      return;
+    }
 
-    const values = toQuantileValues(qRow);
-    scheduleTooltip({
-      x: xScale(price.dateValue),
-      y: yScale(price.close),
-      date: price.date,
-      close: price.close,
-      quantiles: values,
-      band: classifyPriceBand(price.close, values),
-    });
+    scheduleTooltip(hoverPoints[clampedIndex]);
   }
 
   function scheduleTooltip(nextTooltip: TooltipState) {
-    if (lastTooltipDateRef.current === nextTooltip.date) return;
+    if (
+      lastTooltipIndexRef.current === nextTooltip.index ||
+      pendingTooltipIndexRef.current === nextTooltip.index
+    ) {
+      return;
+    }
 
     pendingTooltipRef.current = nextTooltip;
+    pendingTooltipIndexRef.current = nextTooltip.index;
 
     if (tooltipRafRef.current !== null) return;
 
@@ -214,15 +363,25 @@ export const QuantileChart = memo(function QuantileChart({ prices, quantiles, vi
 
       const pendingTooltip = pendingTooltipRef.current;
       pendingTooltipRef.current = null;
+      pendingTooltipIndexRef.current = -1;
 
-      if (!pendingTooltip || lastTooltipDateRef.current === pendingTooltip.date) return;
+      if (
+        !pendingTooltip ||
+        lastTooltipIndexRef.current === pendingTooltip.index
+      )
+        return;
 
+      lastTooltipIndexRef.current = pendingTooltip.index;
       lastTooltipDateRef.current = pendingTooltip.date;
-      setTooltip(pendingTooltip);
+      renderTooltip(pendingTooltip);
     });
   }
 
   function handlePointerLeave() {
+    hideTooltip();
+  }
+
+  function hideTooltip() {
     if (tooltipRafRef.current !== null) {
       window.cancelAnimationFrame(tooltipRafRef.current);
       tooltipRafRef.current = null;
@@ -230,7 +389,59 @@ export const QuantileChart = memo(function QuantileChart({ prices, quantiles, vi
 
     pendingTooltipRef.current = null;
     lastTooltipDateRef.current = "";
-    setTooltip(null);
+    lastTooltipIndexRef.current = -1;
+    pendingTooltipIndexRef.current = -1;
+    tooltipLayerRef.current?.setAttribute("visibility", "hidden");
+  }
+
+  function renderTooltip(nextTooltip: TooltipState) {
+    const tooltipLayer = tooltipLayerRef.current;
+    const tooltipBoxGroup = tooltipBoxGroupRef.current;
+    const hoverDot = hoverDotRef.current;
+    const title = tooltipTitleRef.current;
+    const value = tooltipValueRef.current;
+    const band = tooltipBandRef.current;
+
+    if (
+      !tooltipLayer ||
+      !tooltipBoxGroup ||
+      !hoverDot ||
+      !title ||
+      !value ||
+      !band
+    )
+      return;
+
+    const boxX =
+      Math.min(nextTooltip.x + 14, chartWidth - tooltipLayout.width) -
+      nextTooltip.x;
+    const boxY = Math.max(
+      8,
+      Math.min(
+        nextTooltip.y - tooltipLayout.height / 2,
+        chartHeight - tooltipLayout.height - 8,
+      ),
+    );
+
+    tooltipLayer.setAttribute("visibility", "visible");
+    tooltipLayer.setAttribute("transform", `translate(${nextTooltip.x},0)`);
+    hoverDot.setAttribute("cy", String(nextTooltip.y));
+    tooltipBoxGroup.setAttribute("transform", `translate(${boxX},${boxY})`);
+
+    const quantileValues = toQuantileValues(nextTooltip.quantile);
+    const close = nextTooltip.close ?? quantileValues.q50;
+
+    title.textContent = formatDateLabel(nextTooltip.date);
+    value.textContent = `Close ${formatCurrency(close)}${nextTooltip.isProjected ? " (est.)" : ""}`;
+    band.textContent = nextTooltip.isProjected
+      ? "Band N/A (projection)"
+      : classifyPriceBand(close, quantileValues);
+
+    quantileLabelRows.forEach((quantileRow, index) => {
+      const row = tooltipQuantileRefs.current[index];
+      if (row)
+        row.textContent = `${quantileRow.label} ${formatCurrency(quantileValues[quantileRow.key])}`;
+    });
   }
 
   return (
@@ -262,27 +473,52 @@ export const QuantileChart = memo(function QuantileChart({ prices, quantiles, vi
           latestPoint={latestPoint}
         />
 
-        {tooltip ? (
-          <g className="tooltip-layer" transform={`translate(${tooltip.x},0)`}>
-            <line className="crosshair" y1="0" y2={chartHeight} />
-            <circle className="hover-dot" cy={tooltip.y} r="5" />
-            <g transform={`translate(${Math.min(tooltip.x + 14, chartWidth - 210) - tooltip.x},${Math.max(18, tooltip.y - 76)})`}>
-              <rect className="tooltip-box" width="198" height="94" rx="6" />
-              <text className="tooltip-title" x="12" y="22">
-                {formatDateLabel(tooltip.date)}
-              </text>
-              <text className="tooltip-value" x="12" y="45">
-                Close {formatCurrency(tooltip.close)}
-              </text>
-              <text className="tooltip-copy" x="12" y="66">
-                {tooltip.band}
-              </text>
-              <text className="tooltip-copy" x="12" y="84">
-                Q50 {formatCurrency(tooltip.quantiles.q50)}
-              </text>
-            </g>
+        <g
+          ref={tooltipLayerRef}
+          className="tooltip-layer"
+          visibility="hidden"
+          transform="translate(0,0)"
+        >
+          <line className="crosshair" y1="0" y2={chartHeight} />
+          <circle ref={hoverDotRef} className="hover-dot" cy="0" r="5" />
+          <g ref={tooltipBoxGroupRef} transform="translate(0,0)">
+            <rect
+              className="tooltip-box"
+              width={tooltipLayout.width}
+              height={tooltipLayout.height}
+              rx="4"
+            />
+            <text
+              ref={tooltipTitleRef}
+              className="tooltip-title"
+              x="14"
+              y={tooltipLayout.titleY}
+            />
+            <text
+              ref={tooltipValueRef}
+              className="tooltip-value"
+              x="14"
+              y={tooltipLayout.closeY}
+            />
+            <text
+              ref={tooltipBandRef}
+              className="tooltip-copy"
+              x="14"
+              y={tooltipLayout.bandY}
+            />
+            {quantileLabelRows.map((row, index) => (
+              <text
+                className="tooltip-copy"
+                key={row.key}
+                ref={(node) => {
+                  tooltipQuantileRefs.current[index] = node;
+                }}
+                x="14"
+                y={tooltipLayout.rowStartY + index * tooltipLayout.rowGap}
+              />
+            ))}
           </g>
-        ) : null}
+        </g>
       </g>
     </svg>
   );
@@ -309,7 +545,12 @@ const StaticChartLayers = memo(function StaticChartLayers({
 }) {
   return (
     <>
-      <rect className="plot-bg" width={chartWidth} height={chartHeight} rx="6" />
+      <rect
+        className="plot-bg"
+        width={chartWidth}
+        height={chartHeight}
+        rx="6"
+      />
 
       {yTicks.map((tick) => (
         <g key={tick} transform={`translate(0,${yScale(tick)})`}>
@@ -323,13 +564,25 @@ const StaticChartLayers = memo(function StaticChartLayers({
       {xTicks.map((tick) => (
         <g key={tick.toISOString()} transform={`translate(${xScale(tick)},0)`}>
           <line className="x-tick-line" y1={chartHeight} y2={chartHeight + 7} />
-          <text className="axis-label x-label" y={chartHeight + 30} textAnchor="middle">
+          <text
+            className="axis-label x-label"
+            y={chartHeight + 30}
+            textAnchor="middle"
+          >
             {d3.utcFormat("%Y")(tick)}
           </text>
         </g>
       ))}
 
-      {bandPaths.map((band) => (band.d ? <path key={`${band.lower}-${band.upper}`} className={band.className} d={band.d} /> : null))}
+      {bandPaths.map((band) =>
+        band.d ? (
+          <path
+            key={`${band.lower}-${band.upper}`}
+            className={band.className}
+            d={band.d}
+          />
+        ) : null,
+      )}
 
       {quantilePaths.map(({ key, d }) =>
         d ? (

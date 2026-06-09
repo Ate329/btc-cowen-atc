@@ -21,13 +21,7 @@ describe("RangeBrush", () => {
     vi.restoreAllMocks();
   });
 
-  it("emits live range changes while a handle is moving", () => {
-    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
-      callback(0);
-      return 1;
-    });
-    vi.stubGlobal("cancelAnimationFrame", vi.fn());
-
+  it("previews range changes locally and commits them on release", () => {
     SVGSVGElement.prototype.setPointerCapture = vi.fn();
     SVGSVGElement.prototype.releasePointerCapture = vi.fn();
     SVGSVGElement.prototype.hasPointerCapture = vi.fn(() => true);
@@ -53,6 +47,7 @@ describe("RangeBrush", () => {
 
     const svg = host.querySelector(".range-brush") as SVGSVGElement;
     const startHandle = host.querySelector(".range-brush-handle") as SVGGElement;
+    const initialLabel = host.querySelector(".range-brush-window")?.textContent;
     svg.getBoundingClientRect = () =>
       ({ left: 0, top: 0, width: 1040, height: 64, right: 1040, bottom: 64, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
 
@@ -61,6 +56,14 @@ describe("RangeBrush", () => {
       svg.dispatchEvent(pointerEvent("pointermove", { clientX: 300, clientY: 32, buttons: 1 }));
     });
 
+    expect(host.querySelector(".range-brush-window")?.textContent).not.toBe(initialLabel);
+    expect(changes).toHaveLength(0);
+
+    act(() => {
+      svg.dispatchEvent(pointerEvent("pointerup", { clientX: 300, clientY: 32, buttons: 0 }));
+    });
+
+    expect(host.querySelector(".range-brush-window")?.textContent).not.toBe(initialLabel);
     expect(changes.at(-1)).toEqual(expect.objectContaining({ endDate: "2016-01-01" }));
     expect(changes.at(-1)?.startDate).not.toBe("2012-01-01");
 

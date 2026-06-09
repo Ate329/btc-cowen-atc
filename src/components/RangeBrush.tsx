@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import * as d3 from "d3";
+import { sampleExtremaRowsByXBucket, sampleRowsByCount } from "../lib/chartSampling";
+import { withPathDigits } from "../lib/d3Path";
 import type { PriceRow, QuantileRow } from "../lib/types";
 
 export type BrushWindow = {
@@ -41,6 +43,8 @@ const dayMs = 86_400_000;
 const minWindowMs = 45 * dayMs;
 const monthMs = 30 * dayMs;
 const yearMs = 365 * dayMs;
+const pathDigits = 1;
+const quantileRenderDensity = 1.5;
 
 export function RangeBrush({
   prices,
@@ -53,8 +57,6 @@ export function RangeBrush({
   const svgRef = useRef<SVGSVGElement | null>(null);
   const dragRef = useRef<DragState | null>(null);
   const draftSelectionRef = useRef<SelectionMs | null>(null);
-  const liveChangeRafRef = useRef<number | null>(null);
-  const liveWindowRef = useRef<BrushWindow | null>(value);
   const [isDragging, setIsDragging] = useState(false);
   const [draftWindow, setDraftWindow] = useState<BrushWindow | null>(value);
 
@@ -70,15 +72,7 @@ export function RangeBrush({
       setDraftWindow(value);
       draftSelectionRef.current = null;
     }
-  }, [domainEndDate, domainStartDate, isDragging, value]);
-
-  useEffect(() => {
-    return () => {
-      if (liveChangeRafRef.current !== null) {
-        window.cancelAnimationFrame(liveChangeRafRef.current);
-      }
-    };
-  }, []);
+  }, [domainEndDate, domainStartDate, value]);
 
   const xScale = useMemo(
     () => d3.scaleUtc().domain([new Date(domainStartMs), new Date(domainEndMs)]).range([0, innerWidth]),
@@ -110,27 +104,46 @@ export function RangeBrush({
     return d3.scaleLog().domain([min * 0.7, max * 1.25]).range([innerHeight, 0]).clamp(true);
   }, [overviewRows]);
 
-  const q50AreaPath = useMemo(() => {
-    const area = d3
-      .area<(typeof overviewRows.q50Rows)[number]>()
-      .x((row) => xScale(row.dateValue))
-      .y0(innerHeight)
-      .y1((row) => yScale(row.value))
-      .curve(d3.curveMonotoneX);
+  const renderOverviewRows = useMemo(
+    () => ({
+      q50Rows: sampleRowsByCount(overviewRows.q50Rows, Math.ceil(innerWidth * quantileRenderDensity)),
+      priceRows: sampleExtremaRowsByXBucket(
+        overviewRows.priceRows,
+        (row) => xScale(row.dateValue),
+        (row) => row.value,
+        Math.ceil(innerWidth),
+      ),
+    }),
+    [overviewRows, xScale],
+  );
 
-    return area(overviewRows.q50Rows) ?? "";
-  }, [overviewRows, xScale, yScale]);
+  const q50AreaPath = useMemo(() => {
+    const area = withPathDigits(
+      d3
+        .area<(typeof overviewRows.q50Rows)[number]>()
+        .x((row) => xScale(row.dateValue))
+        .y0(innerHeight)
+        .y1((row) => yScale(row.value))
+        .curve(d3.curveMonotoneX),
+      pathDigits,
+    );
+
+    return area(renderOverviewRows.q50Rows) ?? "";
+  }, [renderOverviewRows, xScale, yScale]);
 
   const pricePath = useMemo(() => {
-    const line = d3
-      .line<(typeof overviewRows.priceRows)[number]>()
-      .defined((row) => Number.isFinite(row.value) && row.value > 0)
-      .x((row) => xScale(row.dateValue))
-      .y((row) => yScale(row.value))
-      .curve(d3.curveMonotoneX);
+    const line = withPathDigits(
+      d3
+        .line<(typeof overviewRows.priceRows)[number]>()
+        .defined((row) => Number.isFinite(row.value) && row.value > 0)
+        .x((row) => xScale(row.dateValue))
+        .y((row) => yScale(row.value))
+        .curve(d3.curveMonotoneX),
+      pathDigits,
+    );
 
-    return line(overviewRows.priceRows) ?? "";
-  }, [overviewRows, xScale, yScale]);
+    return line(renderOverviewRows.priceRows) ?? "";
+  }, [renderOverviewRows, xScale, yScale]);
 
   const selectedX = xScale(new Date(selectedStartMs));
   const selectedWidth = xScale(new Date(selectedEndMs)) - selectedX;
@@ -181,7 +194,6 @@ export function RangeBrush({
     const draft = draftSelectionRef.current;
     dragRef.current = null;
     draftSelectionRef.current = null;
-    cancelLiveChange();
     setIsDragging(false);
 
     if (draft) {
@@ -239,31 +251,12 @@ export function RangeBrush({
     const nextWindow = buildWindow(startMs, endMs);
     draftSelectionRef.current = { startMs, endMs };
     setDraftWindow(nextWindow);
-    scheduleLiveChange(nextWindow);
   }
 
   function commitWindow(startMs: number, endMs: number) {
     const nextWindow = buildWindow(startMs, endMs);
     setDraftWindow(nextWindow);
     onChange(nextWindow);
-  }
-
-  function scheduleLiveChange(nextWindow: BrushWindow | null) {
-    liveWindowRef.current = nextWindow;
-
-    if (liveChangeRafRef.current !== null) return;
-
-    liveChangeRafRef.current = window.requestAnimationFrame(() => {
-      liveChangeRafRef.current = null;
-      onChange(liveWindowRef.current);
-    });
-  }
-
-  function cancelLiveChange() {
-    if (liveChangeRafRef.current !== null) {
-      window.cancelAnimationFrame(liveChangeRafRef.current);
-      liveChangeRafRef.current = null;
-    }
   }
 
   function buildWindow(startMs: number, endMs: number): BrushWindow | null {
