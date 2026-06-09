@@ -1,0 +1,39 @@
+# BTC Cowen ATC
+
+BTC Cowen ATC is an interactive Bitcoin price model chart and methodology companion for Benjamin Cowen's working paper "Asymmetric Tail Curvature in Bitcoin Price Quantiles."
+
+## Canonical pages
+
+- Dashboard: https://catc.zyhe.me/
+- Methodology and caveats: https://catc.zyhe.me/about/
+- Data snapshot: https://catc.zyhe.me/data/btc-atc.json
+- XML sitemap: https://catc.zyhe.me/sitemap.xml
+- Source paper: https://benjamincowen.com/reports/asymmetric-tail-curvature-in-bitcoin-price-quantiles
+
+## What the site is
+
+- A visual interface for Bitcoin asymmetric tail curvature quantile bands.
+- A BTC/USD daily close chart with Cowen paper coefficients and comparison model modes.
+- A research and education companion for long-run Bitcoin price structure.
+- A descriptive model view with explicit projection caveats.
+
+## What the site is not
+
+- It is not investment advice.
+- It is not a trading signal.
+- It is not a guaranteed Bitcoin floor, target, or price forecast.
+- It is not a portfolio risk or return-tail probability model.
+
+## Structured metadata
+
+- The HTML pages include JSON-LD for WebSite, WebApplication, WebPage, BreadcrumbList, and Dataset.
+- The dataset JSON is the canonical machine-readable BTC/USD snapshot for this site.
+- The social preview image is https://catc.zyhe.me/social-preview.png.
+
+## Useful phrases
+
+- Bitcoin ATC quantile model
+- BTC price model chart
+- Cowen asymmetric tail curvature
+- Bitcoin quantile bands
+- BTC/USD projection caveats

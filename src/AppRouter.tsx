@@ -1,14 +1,49 @@
-import { useCallback, useLayoutEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useState } from "react";
 import { flushSync } from "react-dom";
 import AboutPage from "./components/AboutPage";
 import App from "./App";
+import { applyPageSeo, type SeoPage } from "./lib/seo";
 
-type Page = "dashboard" | "about";
+type Page = SeoPage;
+
+function getPageFromUrl(url: URL): Page | null {
+  if (url.pathname === "/about" || url.pathname === "/about/") {
+    return "about";
+  }
+
+  if (url.pathname !== "/") {
+    return null;
+  }
+
+  const page = url.searchParams.get("page");
+  if (page === "about") {
+    return "about";
+  }
+
+  if (page !== null) {
+    return null;
+  }
+
+  return "dashboard";
+}
 
 function getCurrentPage(): Page {
-  return new URLSearchParams(window.location.search).get("page") === "about"
-    ? "about"
-    : "dashboard";
+  return getPageFromUrl(new URL(window.location.href)) ?? "dashboard";
+}
+
+function normalizeCurrentLocation(page: Page) {
+  const url = new URL(window.location.href);
+  const isLegacyAboutRoute =
+    page === "about" &&
+    (url.pathname === "/about" || url.searchParams.get("page") === "about");
+
+  if (!isLegacyAboutRoute) return;
+
+  const nextPath = `/about/${url.hash}`;
+  const currentPath = `${url.pathname}${url.search}${url.hash}`;
+  if (nextPath !== currentPath) {
+    window.history.replaceState({}, "", nextPath);
+  }
 }
 
 function isPlainLeftClick(event: MouseEvent): boolean {
@@ -27,12 +62,17 @@ function getAppUrl(anchor: HTMLAnchorElement): URL | null {
   if (anchor.hasAttribute("download")) return null;
 
   const url = new URL(anchor.href);
-  if (url.origin !== window.location.origin || url.pathname !== "/") {
+  if (url.origin !== window.location.origin) {
     return null;
   }
 
-  const page = url.searchParams.get("page");
-  if (page !== null && page !== "about") return null;
+  const page = getPageFromUrl(url);
+  if (!page) return null;
+
+  if (page === "about") {
+    url.pathname = "/about/";
+    url.search = "";
+  }
 
   return url;
 }
@@ -56,10 +96,18 @@ export function AppRouter() {
   const [page, setPage] = useState<Page>(() => getCurrentPage());
 
   const syncPage = useCallback(() => {
-    setPage(getCurrentPage());
+    const nextPage = getCurrentPage();
+    normalizeCurrentLocation(nextPage);
+    setPage(nextPage);
   }, []);
 
+  useEffect(() => {
+    applyPageSeo(page);
+  }, [page]);
+
   useLayoutEffect(() => {
+    syncPage();
+
     const handlePopState = () => syncPage();
 
     const handleDocumentClick = (event: MouseEvent) => {

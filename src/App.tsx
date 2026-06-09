@@ -358,7 +358,7 @@ function App() {
         <a href="#evidence">Evidence</a>
         <a href="#paper">Paper</a>
         <a href="#caveats">Caveats</a>
-        <a className="nav-button-link" href="/?page=about">About</a>
+        <a className="nav-button-link" href="/about/">About</a>
       </SiteHeader>
 
       <main id="top">

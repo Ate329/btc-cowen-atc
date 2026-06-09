@@ -9,6 +9,7 @@
     "scan:secrets": "node scripts/scan-secrets.mjs",
     "prebuild": "npm run generate:data",
     "build": "tsc -b && vite build",
+    "postbuild": "node scripts/emit-seo-pages.mjs",
     "preview": "vite preview --host 127.0.0.1",
     "test": "vitest run"
   },

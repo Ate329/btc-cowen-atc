@@ -13,8 +13,8 @@ afterEach(() => {
 });
 
 describe("About page route", () => {
-  it("renders the about page for ?page=about with the required sections", () => {
-    window.history.replaceState({}, "", "/?page=about");
+  it("renders the about page for /about/ with the required sections", () => {
+    window.history.replaceState({}, "", "/about/");
 
     const host = document.createElement("div");
     document.body.append(host);
@@ -23,7 +23,7 @@ describe("About page route", () => {
       root.render(<AppRouter />);
     });
 
-    expect(host.textContent).toContain("What this page is about");
+    expect(host.textContent).toContain("Bitcoin ATC quantile model methodology");
     expect(host.textContent).toContain("The paper");
     expect(host.textContent).toContain("What this project does");
     expect(host.textContent).toContain("Why?");
@@ -34,6 +34,25 @@ describe("About page route", () => {
     );
     expect(backLinks.length).toBe(1);
     expect(host.querySelector('button[role="switch"]')).toBeTruthy();
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("keeps the legacy ?page=about URL compatible and normalizes it", () => {
+    window.history.replaceState({}, "", "/?page=about");
+
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    act(() => {
+      root.render(<AppRouter />);
+    });
+
+    expect(window.location.pathname).toBe("/about/");
+    expect(window.location.search).toBe("");
+    expect(host.textContent).toContain("Bitcoin ATC quantile model methodology");
 
     act(() => {
       root.unmount();
@@ -71,8 +90,9 @@ describe("About page route", () => {
       await Promise.resolve();
     });
 
-    expect(window.location.search).toBe("?page=about");
-    expect(host.textContent).toContain("What this page is about");
+    expect(window.location.pathname).toBe("/about/");
+    expect(window.location.search).toBe("");
+    expect(host.textContent).toContain("Bitcoin ATC quantile model methodology");
 
     const backLink = [...host.querySelectorAll("a")].find((item) =>
       item.textContent?.includes("Back to dashboard"),
@@ -86,6 +106,7 @@ describe("About page route", () => {
       await Promise.resolve();
     });
 
+    expect(window.location.pathname).toBe("/");
     expect(window.location.search).toBe("");
     expect(host.textContent).toContain(
       "Bitcoin price through asymmetric quantile bands",

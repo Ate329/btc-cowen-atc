@@ -1,0 +1,86 @@
+import { afterEach, describe, expect, it } from "vitest";
+import {
+  applyPageSeo,
+  buildStructuredData,
+  getCanonicalUrl,
+  seoPages,
+} from "../src/lib/seo";
+
+afterEach(() => {
+  document.head.innerHTML = "";
+});
+
+describe("SEO metadata", () => {
+  it("keeps page titles and descriptions within search-snippet friendly bounds", () => {
+    for (const page of Object.values(seoPages)) {
+      expect(page.title.length).toBeLessThanOrEqual(60);
+      expect(page.description.length).toBeGreaterThanOrEqual(90);
+      expect(page.description.length).toBeLessThanOrEqual(160);
+    }
+  });
+
+  it("builds canonical URLs for crawlable routes", () => {
+    expect(getCanonicalUrl("dashboard")).toBe("https://catc.zyhe.me/");
+    expect(getCanonicalUrl("about")).toBe("https://catc.zyhe.me/about/");
+  });
+
+  it("adds breadcrumb and dataset download JSON-LD", () => {
+    const data = buildStructuredData("about") as {
+      "@graph": Array<Record<string, unknown>>;
+    };
+
+    const breadcrumb = data["@graph"].find(
+      (item) => item["@type"] === "BreadcrumbList",
+    );
+    expect(breadcrumb).toBeTruthy();
+    expect(JSON.stringify(breadcrumb)).toContain("https://catc.zyhe.me/about/");
+
+    const dataset = data["@graph"].find((item) => item["@type"] === "Dataset");
+    expect(dataset).toMatchObject({
+      distribution: {
+        "@type": "DataDownload",
+        contentUrl: "https://catc.zyhe.me/data/btc-atc.json",
+        encodingFormat: "application/json",
+      },
+    });
+
+    const webpage = data["@graph"].find((item) =>
+      Array.isArray(item["@type"]),
+    );
+    expect(webpage?.["@type"]).toContain("AboutPage");
+  });
+
+  it("applies route-specific head tags in the browser", () => {
+    document.head.innerHTML = `
+      <title></title>
+      <meta name="description" content="" />
+      <link rel="canonical" href="" />
+      <script id="structured-data" type="application/ld+json"></script>
+    `;
+
+    applyPageSeo("about");
+
+    expect(document.title).toBe(
+      "Bitcoin ATC Quantile Model Methodology | BTC Cowen ATC",
+    );
+    expect(
+      document.querySelector<HTMLMetaElement>('meta[name="description"]')
+        ?.content,
+    ).toBe(
+      "Methodology notes for the Bitcoin ATC quantile model: Cowen paper inputs, BTC/USD data snapshot, projection caveats, and non-trading limits.",
+    );
+    expect(
+      document.querySelector<HTMLLinkElement>('link[rel="canonical"]')?.href,
+    ).toBe("https://catc.zyhe.me/about/");
+    expect(
+      document.querySelector<HTMLMetaElement>('meta[property="og:image:alt"]')
+        ?.content,
+    ).toBe("BTC Cowen ATC chart preview with Bitcoin quantile model bands");
+
+    const structuredData = JSON.parse(
+      document.querySelector<HTMLScriptElement>("#structured-data")?.textContent ??
+        "{}",
+    );
+    expect(JSON.stringify(structuredData)).toContain("BreadcrumbList");
+  });
+});

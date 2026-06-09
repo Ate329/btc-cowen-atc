@@ -1,0 +1,79 @@
+{
+  "siteUrl": "https://catc.zyhe.me",
+  "siteName": "BTC Cowen ATC",
+  "siteDescription": "Explore a Bitcoin price model chart using Cowen's asymmetric tail curvature quantile bands, BTC/USD history, projections, and caveats.",
+  "author": "BTC Cowen ATC",
+  "locale": "en_US",
+  "language": "en",
+  "socialImage": {
+    "url": "/social-preview.png",
+    "width": 1200,
+    "height": 630,
+    "type": "image/png",
+    "alt": "BTC Cowen ATC chart preview with Bitcoin quantile model bands"
+  },
+  "cowenPaperUrl": "https://benjamincowen.com/reports/asymmetric-tail-curvature-in-bitcoin-price-quantiles",
+  "keywords": [
+    "Bitcoin ATC quantile model",
+    "BTC price model chart",
+    "Cowen asymmetric tail curvature",
+    "Bitcoin quantile bands",
+    "BTC/USD projection caveats"
+  ],
+  "dataset": {
+    "name": "BTC/USD daily close and ATC quantile band snapshot",
+    "description": "Daily BTC/USD close prices from 2012 onward with Bitcoin asymmetric tail curvature quantile bands projected through 2051-12-31.",
+    "path": "/data/btc-atc.json",
+    "temporalCoverage": "2012-01-01/2051-12-31",
+    "encodingFormat": "application/json",
+    "measurementTechnique": "Cowen working paper Table 3 asymmetric tail curvature coefficients and generated BTC/USD daily snapshot.",
+    "variables": [
+      "BTC/USD daily close",
+      "Q1 Bitcoin price quantile band",
+      "Q10 Bitcoin price quantile band",
+      "Q25 Bitcoin price quantile band",
+      "Q50 Bitcoin price quantile band",
+      "Q75 Bitcoin price quantile band",
+      "Q95 Bitcoin price quantile band",
+      "Q99 Bitcoin price quantile band"
+    ]
+  },
+  "pages": {
+    "dashboard": {
+      "title": "Bitcoin ATC Quantile Model Chart | BTC Cowen ATC",
+      "description": "Explore a Bitcoin price model chart using Cowen's asymmetric tail curvature quantile bands, BTC/USD history, projections, and caveats.",
+      "path": "/",
+      "breadcrumb": "Dashboard",
+      "fallback": {
+        "heading": "Bitcoin ATC quantile model chart",
+        "paragraphs": [
+          "BTC Cowen ATC visualizes Bitcoin price history against asymmetric tail curvature quantile bands from Benjamin Cowen's working paper.",
+          "The dashboard compares BTC/USD daily closes with Q1 through Q99 model bands, projection horizons, and caveats for long-run market structure analysis."
+        ],
+        "links": [
+          { "label": "Open methodology and caveats", "href": "/about/" },
+          { "label": "Download BTC/USD data snapshot", "href": "/data/btc-atc.json" },
+          { "label": "Read Cowen paper", "href": "https://benjamincowen.com/reports/asymmetric-tail-curvature-in-bitcoin-price-quantiles" }
+        ]
+      }
+    },
+    "about": {
+      "title": "Bitcoin ATC Quantile Model Methodology | BTC Cowen ATC",
+      "description": "Methodology notes for the Bitcoin ATC quantile model: Cowen paper inputs, BTC/USD data snapshot, projection caveats, and non-trading limits.",
+      "path": "/about/",
+      "breadcrumb": "Methodology",
+      "fallback": {
+        "heading": "Bitcoin ATC quantile model methodology",
+        "paragraphs": [
+          "This page explains how BTC Cowen ATC uses Cowen's asymmetric tail curvature model, BTC/USD daily close data, and generated quantile bands.",
+          "It documents the paper inputs, alternate model comparison modes, projection caveats, and the non-trading limits of the Bitcoin price model chart."
+        ],
+        "links": [
+          { "label": "Back to Bitcoin ATC chart", "href": "/" },
+          { "label": "Download BTC/USD data snapshot", "href": "/data/btc-atc.json" },
+          { "label": "Read Cowen paper", "href": "https://benjamincowen.com/reports/asymmetric-tail-curvature-in-bitcoin-price-quantiles" }
+        ]
+      }
+    }
+  }
+}

@@ -28,8 +28,8 @@ function number(value: number, maximumFractionDigits = 4): string {
 export default function AboutPage() {
   return (
     <div className="app">
-      <SiteHeader homeHref="/?" navLabel="About navigation">
-        <a href="/?" className="about-back-link">
+      <SiteHeader homeHref="/" navLabel="About navigation">
+        <a href="/" className="about-back-link">
           <ArrowLeft size={14} />
           Back to dashboard
         </a>
@@ -47,10 +47,10 @@ export default function AboutPage() {
         <section className="about-hero">
           <div className="about-copy">
             <p className="about-kicker">Project note</p>
-            <h1>What this page is about</h1>
+            <h1>Bitcoin ATC quantile model methodology</h1>
             <p className="about-lede">
-              This app is a long-form, non-trading companion for Cowen's working
-              paper{" "}
+              This BTC price model chart is a long-form, non-trading companion
+              for Cowen's working paper{" "}
               <a
                 href="https://benjamincowen.com/reports/asymmetric-tail-curvature-in-bitcoin-price-quantiles"
                 target="_blank"
@@ -64,7 +64,8 @@ export default function AboutPage() {
           </div>
           <p className="about-expanded-copy">
             It visualizes Bitcoin's conditional price distribution in the form
-            of quantile bands and compares those bands against history.
+            of ATC quantile bands, compares those bands against BTC/USD history,
+            and keeps the Bitcoin projection caveats visible.
           </p>
           <div className="about-takeaway">
             <p className="about-takeaway-kicker">Paper-level takeaway</p>
@@ -121,7 +122,9 @@ export default function AboutPage() {
           <p>
             The dashboard uses this project config and snapshot process as a
             faithful interface around the paper's fixed Table 3 parameters and
-            generated price bands:
+            generated price bands. In plain terms, it is a Bitcoin ATC quantile
+            model interface for exploring Cowen asymmetric tail curvature
+            against historical BTC/USD closes:
           </p>
           <ul className="about-list">
             <li>
@@ -188,6 +191,10 @@ export default function AboutPage() {
         </AboutSection>
 
         <AboutSection title="What this page does not do">
+          <p>
+            The projection controls are descriptive model views, not investment
+            advice, guaranteed BTC targets, or a trading system.
+          </p>
           <ul className="about-list about-list-tight">
             <li>It does not predict the next weekly or daily BTC move.</li>
             <li>
