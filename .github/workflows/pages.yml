@@ -32,6 +32,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Scan for secrets before publishing
+        run: npm run scan:secrets
+
       - name: Test
         run: npm run test
 

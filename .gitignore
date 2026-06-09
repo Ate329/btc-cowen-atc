@@ -9,3 +9,14 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 preview.*.log
+*.pem
+*.crt
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.csr
+*.pkcs
+id_rsa
+id_dsa
