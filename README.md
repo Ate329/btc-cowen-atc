@@ -16,10 +16,6 @@ npm run dev
 
 Local and production builds use Vite `base: "/"` because the site is deployed at the custom domain root, `https://catc.zyhe.me/`. In local Vite dev mode, open `http://localhost:5173/`.
 
-## Security
-
-Run `npm run scan:secrets` before committing or opening a PR. The script checks tracked files for common secret-like patterns and blocks the push pipeline if anything risky is found.
-
 ## Data
 
 `scripts/generate-data.mjs` fetches BTC/USD daily OHLCV rows from the CryptoCompare/CoinDesk legacy `histoday` endpoint, starting on `2012-01-01`. It writes `public/data/btc-atc.json` with:
