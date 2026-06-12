@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   applyPageSeo,
@@ -11,6 +13,14 @@ afterEach(() => {
 });
 
 describe("SEO metadata", () => {
+  it("includes the Google Search Console verification tag in the static homepage", () => {
+    const indexHtml = readFileSync(resolve(process.cwd(), "index.html"), "utf8");
+
+    expect(indexHtml).toContain(
+      '<meta name="google-site-verification" content="4su37Q-i1rqArRfSfS-vHJHrcGsuEKrXuXW4E1sz-0A" />',
+    );
+  });
+
   it("keeps page titles and descriptions within search-snippet friendly bounds", () => {
     for (const page of Object.values(seoPages)) {
       expect(page.title.length).toBeLessThanOrEqual(60);
