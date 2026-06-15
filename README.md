@@ -18,13 +18,13 @@ Local and production builds use Vite `base: "/"` because the site is deployed at
 
 ## Data
 
-`scripts/generate-data.mjs` fetches BTC/USD daily OHLCV rows from the CryptoCompare/CoinDesk legacy `histoday` endpoint, starting on `2012-01-01`. It writes `public/data/btc-atc.json` with:
+`scripts/generate-data.mjs` fetches BTC/USD daily OHLCV rows from the CryptoCompare/CoinDesk legacy `histoday` endpoint, starting on `2012-01-01`. If that source rejects an incremental refresh, the script appends missing recent BTC-USD daily candles from Coinbase Exchange as a fallback. It writes `public/data/btc-atc.json` with:
 
 - `prices`: historical daily BTC/USD OHLCV rows.
 - `quantiles`: daily model bands through `2051-12-31`, enough for the site's 25-year projection view.
 - `metadata`: source, generation timestamp, latest close date, warnings, and paper coefficient config.
 
-If the API refresh fails and an existing snapshot is present, the script keeps the existing file and exits successfully so GitHub Pages does not deploy a blank chart.
+If every refresh source fails and an existing snapshot is present, local builds keep the existing file so the chart still renders. In CI/GitHub Actions, a stale snapshot fails the build instead of quietly publishing old data.
 
 ## Model
 

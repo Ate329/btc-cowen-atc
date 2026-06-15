@@ -66,6 +66,7 @@ export type BtcAtcDataset = {
     generatedAt: string;
     source: string;
     sourceUrl: string;
+    fallbackSourceUrl?: string;
     startDate: string;
     latestCloseDate: string;
     projectionEndDate: string;
