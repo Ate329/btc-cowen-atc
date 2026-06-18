@@ -47,6 +47,7 @@ describe("SEO metadata", () => {
 
     const dataset = data["@graph"].find((item) => item["@type"] === "Dataset");
     expect(dataset).toMatchObject({
+      license: "https://github.com/Ate329/btc-cowen-atc/blob/main/LICENSE",
       distribution: {
         "@type": "DataDownload",
         contentUrl: "https://catc.zyhe.me/data/btc-atc.json",
@@ -58,6 +59,33 @@ describe("SEO metadata", () => {
       Array.isArray(item["@type"]),
     );
     expect(webpage?.["@type"]).toContain("AboutPage");
+  });
+
+  it("adds Google image license metadata to the primary page image", () => {
+    const data = buildStructuredData("dashboard") as {
+      "@graph": Array<Record<string, unknown>>;
+    };
+
+    const webpage = data["@graph"].find(
+      (item) => item["@id"] === "https://catc.zyhe.me/#webpage",
+    );
+
+    expect(webpage).toMatchObject({
+      primaryImageOfPage: {
+        "@type": "ImageObject",
+        url: "https://catc.zyhe.me/social-preview.png",
+        contentUrl: "https://catc.zyhe.me/social-preview.png",
+        license: "https://github.com/Ate329/btc-cowen-atc/blob/main/LICENSE",
+        acquireLicensePage:
+          "https://github.com/Ate329/btc-cowen-atc/blob/main/LICENSE",
+        creditText: "BTC Cowen ATC",
+        creator: {
+          "@type": "Organization",
+          name: "BTC Cowen ATC",
+          url: "https://catc.zyhe.me",
+        },
+      },
+    });
   });
 
   it("applies route-specific head tags in the browser", () => {

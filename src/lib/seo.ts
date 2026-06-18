@@ -32,6 +32,9 @@ type SeoConfig = {
     height: number;
     type: string;
     alt: string;
+    licenseUrl: string;
+    acquireLicensePageUrl: string;
+    creditText: string;
   };
   cowenPaperUrl: string;
   keywords: string[];
@@ -41,6 +44,7 @@ type SeoConfig = {
     path: string;
     temporalCoverage: string;
     encodingFormat: string;
+    licenseUrl: string;
     measurementTechnique: string;
     variables: string[];
   };
@@ -110,6 +114,7 @@ export function buildStructuredData(page: SeoPage) {
         url: datasetUrl,
         temporalCoverage: seoConfig.dataset.temporalCoverage,
         isAccessibleForFree: true,
+        license: seoConfig.dataset.licenseUrl,
         creator: { "@id": publisherId },
         publisher: { "@id": publisherId },
         citation: COWEN_PAPER_URL,
@@ -138,9 +143,18 @@ export function buildStructuredData(page: SeoPage) {
         primaryImageOfPage: {
           "@type": "ImageObject",
           url: SOCIAL_IMAGE_URL,
+          contentUrl: SOCIAL_IMAGE_URL,
           width: seoConfig.socialImage.width,
           height: seoConfig.socialImage.height,
           caption: seoConfig.socialImage.alt,
+          license: seoConfig.socialImage.licenseUrl,
+          acquireLicensePage: seoConfig.socialImage.acquireLicensePageUrl,
+          creditText: seoConfig.socialImage.creditText,
+          creator: {
+            "@type": "Organization",
+            name: SITE_NAME,
+            url: SITE_URL,
+          },
         },
         breadcrumb: { "@id": breadcrumbId },
         about: [{ "@id": webappId }, { "@id": datasetId }],

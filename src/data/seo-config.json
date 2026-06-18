@@ -10,7 +10,10 @@
     "width": 1200,
     "height": 630,
     "type": "image/png",
-    "alt": "BTC Cowen ATC chart preview with Bitcoin quantile model bands"
+    "alt": "BTC Cowen ATC chart preview with Bitcoin quantile model bands",
+    "licenseUrl": "https://github.com/Ate329/btc-cowen-atc/blob/main/LICENSE",
+    "acquireLicensePageUrl": "https://github.com/Ate329/btc-cowen-atc/blob/main/LICENSE",
+    "creditText": "BTC Cowen ATC"
   },
   "cowenPaperUrl": "https://benjamincowen.com/reports/asymmetric-tail-curvature-in-bitcoin-price-quantiles",
   "keywords": [
@@ -26,6 +29,7 @@
     "path": "/data/btc-atc.json",
     "temporalCoverage": "2012-01-01/2051-12-31",
     "encodingFormat": "application/json",
+    "licenseUrl": "https://github.com/Ate329/btc-cowen-atc/blob/main/LICENSE",
     "measurementTechnique": "Cowen working paper Table 3 asymmetric tail curvature coefficients and generated BTC/USD daily snapshot.",
     "variables": [
       "BTC/USD daily close",
