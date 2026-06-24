@@ -280,6 +280,8 @@ function App() {
     !activeModel &&
     !activeModelError &&
     (pendingModelKeys.has(activeModelCacheKey) || canUseModelWorker());
+  const latestPriceIsIntraday =
+    dataState.status === "ready" && dataState.data.metadata.latestPriceIsIntraday === true;
 
   const baseChartData = useMemo(() => {
     if (dataState.status !== "ready" || !activeModel) return null;
@@ -396,14 +398,14 @@ function App() {
             {latest ? (
               <>
                 <DashboardTile
-                  label="Latest close"
+                  label={latestPriceIsIntraday ? "Latest price" : "Latest close"}
                   value={formatCurrency(latest.price.close)}
-                  detail={formatDateLabel(latest.price.date)}
+                  detail={`${formatDateLabel(latest.price.date)}${latestPriceIsIntraday ? " intraday" : ""}`}
                 />
                 <DashboardTile
                   label="Current band"
                   value={latest.band}
-                  detail="Observed close vs model quantiles"
+                  detail="Observed price vs model quantiles"
                 />
                 <DashboardTile
                   label="Distance to Q1"

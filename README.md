@@ -1,10 +1,10 @@
 # BTC Cowen ATC
 
-Interactive GitHub Pages site for visualizing BTC/USD daily closes against the asymmetric quadratic quantile bands from Benjamin Cowen's working paper, [_Asymmetric Tail Curvature in Bitcoin Price Quantiles_](https://benjamincowen.com/reports/asymmetric-tail-curvature-in-bitcoin-price-quantiles).
+Interactive GitHub Pages site for visualizing BTC/USD daily closes and the latest intraday snapshot against the asymmetric quadratic quantile bands from Benjamin Cowen's working paper, [_Asymmetric Tail Curvature in Bitcoin Price Quantiles_](https://benjamincowen.com/reports/asymmetric-tail-curvature-in-bitcoin-price-quantiles).
 
 ## Details
 
-`BTC Cowen ATC` is a Vite + React + TypeScript dashboard that overlays Bitcoin daily close prices with conditional quantile bands from Cowen's working paper _Asymmetric Tail Curvature in Bitcoin Price Quantiles_. It generates a curated BTC/USD snapshot from CryptoCompare/CoinDesk histoday data, precomputes model quantiles (and daily projections to 2051-12-31), and renders an interactive log-scale D3 chart with model switching (paper coefficients vs linear-regression baseline), quantile visibility toggles, range brushing, projection controls, tooltip diagnostics, and a "not a trading signal" caveat-first UX.
+`BTC Cowen ATC` is a Vite + React + TypeScript dashboard that overlays Bitcoin daily close prices and the latest intraday snapshot with conditional quantile bands from Cowen's working paper _Asymmetric Tail Curvature in Bitcoin Price Quantiles_. It generates a curated BTC/USD snapshot from CryptoCompare/CoinDesk histoday data and fallback market-data sources, precomputes model quantiles (and daily projections to 2051-12-31), and renders an interactive log-scale D3 chart with model switching (paper coefficients vs linear-regression baseline), quantile visibility toggles, range brushing, projection controls, tooltip diagnostics, and a "not a trading signal" caveat-first UX.
 
 ## Local Development
 
@@ -18,11 +18,11 @@ Local and production builds use Vite `base: "/"` because the site is deployed at
 
 ## Data
 
-`scripts/generate-data.mjs` fetches BTC/USD daily OHLCV rows from the CryptoCompare/CoinDesk legacy `histoday` endpoint, starting on `2012-01-01`. If that source rejects an incremental refresh, the script appends missing recent BTC-USD daily candles from Coinbase Exchange as a fallback. It writes `public/data/btc-atc.json` with:
+`scripts/generate-data.mjs` fetches BTC/USD daily OHLCV rows from the CryptoCompare/CoinDesk legacy `histoday` endpoint, starting on `2012-01-01`. If that source rejects an incremental refresh, the script appends missing recent BTC-USD daily candles from Coinbase Exchange as a fallback. Each online refresh also appends the current UTC day's snapshot from Coinbase candles, then falls back through Coinbase ticker, Binance, Kraken, Bitstamp, and CoinGecko current-price endpoints so scheduled Pages builds can update intraday. It writes `public/data/btc-atc.json` with:
 
 - `prices`: historical daily BTC/USD OHLCV rows.
 - `quantiles`: daily model bands through `2051-12-31`, enough for the site's 25-year projection view.
-- `metadata`: source, generation timestamp, latest close date, warnings, and paper coefficient config.
+- `metadata`: source, generation timestamp, latest snapshot date, intraday flag, warnings, and paper coefficient config.
 
 If every refresh source fails and an existing snapshot is present, local builds keep the existing file so the chart still renders. In CI/GitHub Actions, a stale snapshot fails the build instead of quietly publishing old data.
 
@@ -39,7 +39,7 @@ Per-date model outputs are monotone-rearranged before rendering.
 
 ## Deploy
 
-`.github/workflows/pages.yml` builds and deploys on pushes to `main`, manual dispatch, and a daily `02:17 UTC` schedule. `public/CNAME` keeps the GitHub Pages custom domain set to `catc.zyhe.me`. In GitHub repository settings, set Pages source to GitHub Actions.
+`.github/workflows/pages.yml` builds and deploys on pushes to `main`, manual dispatch, and hourly scheduled refreshes at minute `17` UTC. `public/CNAME` keeps the GitHub Pages custom domain set to `catc.zyhe.me`. In GitHub repository settings, set Pages source to GitHub Actions.
 
 ## License and attribution
 

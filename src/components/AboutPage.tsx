@@ -142,9 +142,10 @@ export default function AboutPage() {
               prevent crossing in rendering.
             </li>
             <li>
-              Data snapshot: BTC/USD daily closes from 2012 onward are pulled,
-              versioned, and projected to {modelConfig.projectionEndDate} for
-              exploratory long-run view only.
+              Data snapshot: BTC/USD daily closes from 2012 onward plus the
+              latest intraday price are pulled, versioned, and projected to{" "}
+              {modelConfig.projectionEndDate} for exploratory long-run view
+              only.
             </li>
           </ul>
           <div className="about-statline">

@@ -12,7 +12,14 @@ const DAY_MS = 86_400_000;
 const DAY_SECONDS = 86_400;
 const HISTODAY_URL = "https://min-api.cryptocompare.com/data/v2/histoday";
 const COINBASE_CANDLES_URL = "https://api.exchange.coinbase.com/products/BTC-USD/candles";
+const COINBASE_TICKER_URL = "https://api.exchange.coinbase.com/products/BTC-USD/ticker";
+const BINANCE_TICKER_URL = "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT";
+const KRAKEN_TICKER_URL = "https://api.kraken.com/0/public/Ticker?pair=XBTUSD";
+const BITSTAMP_TICKER_URL = "https://www.bitstamp.net/api/v2/ticker/btcusd/";
+const COINGECKO_TICKER_URL =
+  "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_vol=true&include_last_updated_at=true&precision=full";
 const COINBASE_MAX_DAILY_CANDLES = 300;
+const CURRENT_PRICE_TIMEOUT_MS = 8_000;
 
 const model = JSON.parse(await readFile(configPath, "utf8"));
 const isOffline = process.argv.includes("--offline");
@@ -25,23 +32,40 @@ if (isOffline) {
 }
 
 try {
-  const { rows: prices, warnings, usedCoinbaseFallback = false } = await buildPriceRows();
+  const {
+    rows: prices,
+    warnings,
+    usedCoinbaseFallback = false,
+    currentPriceSource,
+    currentPriceSourceUrl,
+  } = await buildPriceRows();
   const quantiles = generateQuantiles(model.startDate, model.projectionEndDate);
 
   if (prices.length === 0) {
     throw new Error("CryptoCompare returned no BTC price rows.");
   }
 
+  const latestPrice = prices.at(-1);
+  const latestPriceIsIntraday = latestPrice?.date === formatUtcDate(currentUtcDay());
+
+  if (latestPrice && (await shouldFailStaleRefresh(latestPrice.date))) {
+    console.error("Existing BTC data snapshot is stale in CI; refusing to publish an old snapshot.");
+    process.exit(1);
+  }
+
   const payload = {
     metadata: {
       generatedAt: new Date().toISOString(),
-      source: usedCoinbaseFallback
-        ? "CryptoCompare/CoinDesk legacy histoday BTC/USD daily OHLCV, with Coinbase Exchange BTC-USD fallback rows"
+      source: usedCoinbaseFallback || currentPriceSource
+        ? "CryptoCompare/CoinDesk legacy histoday BTC/USD daily OHLCV, with fallback BTC/USD market data rows"
         : "CryptoCompare/CoinDesk legacy histoday BTC/USD daily OHLCV",
       sourceUrl: HISTODAY_URL,
       fallbackSourceUrl: usedCoinbaseFallback ? COINBASE_CANDLES_URL : undefined,
+      currentPriceSource,
+      currentPriceSourceUrl,
       startDate: model.startDate,
-      latestCloseDate: prices.at(-1).date,
+      latestCloseDate: latestPrice.date,
+      latestPriceIsIntraday,
       projectionEndDate: model.projectionEndDate,
       priceRows: prices.length,
       quantileRows: quantiles.length,
@@ -72,6 +96,11 @@ try {
 }
 
 async function buildPriceRows() {
+  const completeRows = await buildCompletePriceRows();
+  return appendCurrentDaySnapshot(completeRows);
+}
+
+async function buildCompletePriceRows() {
   const existing = await readExistingSnapshot();
   const endDate = formatUtcDate(previousCompleteUtcDay());
 
@@ -110,6 +139,37 @@ async function buildPriceRows() {
   }
 
   return fetchFullHistoricalPrices();
+}
+
+async function appendCurrentDaySnapshot({ rows, warnings, usedCoinbaseFallback = false }) {
+  const today = formatUtcDate(currentUtcDay());
+  const latestCompleteRow = rows.at(-1);
+
+  if (!latestCompleteRow || latestCompleteRow.date >= today) {
+    return { rows, warnings, usedCoinbaseFallback };
+  }
+
+  try {
+    const currentDay = await fetchCoinbaseCurrentDaySnapshot(today, latestCompleteRow);
+
+    return {
+      rows: dedupeAndSort([...rows.filter((row) => row.date < today), currentDay.row]),
+      warnings: [
+        ...warnings,
+        ...currentDay.warnings,
+        `Loaded current-day BTC snapshot for ${today} from ${currentDay.source}.`,
+      ],
+      usedCoinbaseFallback: true,
+      currentPriceSource: currentDay.source,
+      currentPriceSourceUrl: currentDay.sourceUrl,
+    };
+  } catch (error) {
+    return {
+      rows,
+      warnings: [...warnings, `Coinbase Exchange current-day snapshot failed (${errorMessage(error)}).`],
+      usedCoinbaseFallback,
+    };
+  }
 }
 
 async function fetchFullHistoricalPrices() {
@@ -235,6 +295,237 @@ async function fetchCoinbaseAdditions(latestExistingDate, endDate) {
   return dedupeAndSort(rows).filter((row) => row.date > latestExistingDate && row.date <= endDate);
 }
 
+async function fetchCoinbaseCurrentDaySnapshot(date, latestCompleteRow) {
+  try {
+    const candle = await fetchCoinbaseCurrentDayCandle(date);
+
+    if (candle) {
+      return {
+        row: {
+          ...normalizeCoinbaseRow(candle),
+          date,
+          time: unixSeconds(date),
+        },
+        source: "Coinbase Exchange BTC-USD candles",
+        sourceUrl: COINBASE_CANDLES_URL,
+        warnings: [],
+      };
+    }
+  } catch (error) {
+    return fetchCurrentTickerSnapshot(date, latestCompleteRow, [
+      `Coinbase Exchange current-day candle failed (${errorMessage(error)}); trying ticker fallbacks.`,
+    ]);
+  }
+
+  return fetchCurrentTickerSnapshot(date, latestCompleteRow, [
+    "Coinbase Exchange current-day candle returned no current UTC-day row; trying ticker fallbacks.",
+  ]);
+}
+
+async function fetchCoinbaseCurrentDayCandle(date) {
+  const now = new Date();
+  const today = `${date}T00:00:00Z`;
+  const url = new URL(COINBASE_CANDLES_URL);
+  url.searchParams.set("granularity", String(DAY_SECONDS));
+  url.searchParams.set("start", today);
+  url.searchParams.set("end", now.toISOString());
+
+  const response = await fetch(url, {
+    headers: {
+      "User-Agent": "btc-atc-github-pages",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Coinbase request failed with ${response.status}: ${response.statusText}`);
+  }
+
+  const json = await response.json();
+  if (!Array.isArray(json)) {
+    throw new Error("Coinbase response was not a candle array.");
+  }
+
+  return json
+    .filter((row) => Array.isArray(row) && dateFromUnixSeconds(row[0]) === date)
+    .sort((a, b) => a[0] - b[0])
+    .at(-1);
+}
+
+async function fetchCurrentTickerSnapshot(date, latestCompleteRow, warnings = []) {
+  const failures = [];
+
+  for (const source of currentPriceSources()) {
+    try {
+      const quote = await source.fetchPrice();
+      const row = tickerQuoteToPriceRow(date, latestCompleteRow, quote);
+
+      return {
+        row,
+        source: quote.source,
+        sourceUrl: quote.sourceUrl,
+        warnings: [...warnings, ...failures],
+      };
+    } catch (error) {
+      failures.push(`${source.label} failed (${errorMessage(error)}).`);
+    }
+  }
+
+  throw new Error(`All current BTC price sources failed: ${failures.join(" ")}`);
+}
+
+function currentPriceSources() {
+  return [
+    {
+      label: "Coinbase Exchange BTC-USD ticker",
+      fetchPrice: fetchCoinbaseTickerPrice,
+    },
+    {
+      label: "Binance BTCUSDT ticker",
+      fetchPrice: fetchBinanceTickerPrice,
+    },
+    {
+      label: "Kraken XBTUSD ticker",
+      fetchPrice: fetchKrakenTickerPrice,
+    },
+    {
+      label: "Bitstamp BTC/USD ticker",
+      fetchPrice: fetchBitstampTickerPrice,
+    },
+    {
+      label: "CoinGecko Bitcoin simple price",
+      fetchPrice: fetchCoinGeckoTickerPrice,
+    },
+  ];
+}
+
+async function fetchCoinbaseTickerPrice() {
+  const json = await fetchJson(COINBASE_TICKER_URL, "Coinbase Exchange ticker");
+
+  return buildTickerQuote({
+    source: "Coinbase Exchange BTC-USD ticker",
+    sourceUrl: COINBASE_TICKER_URL,
+    price: json.price,
+    volumeFrom: json.volume,
+  });
+}
+
+async function fetchBinanceTickerPrice() {
+  const json = await fetchJson(BINANCE_TICKER_URL, "Binance ticker");
+
+  return buildTickerQuote({
+    source: "Binance BTCUSDT ticker",
+    sourceUrl: BINANCE_TICKER_URL,
+    price: json.price,
+  });
+}
+
+async function fetchKrakenTickerPrice() {
+  const json = await fetchJson(KRAKEN_TICKER_URL, "Kraken ticker");
+  if (Array.isArray(json.error) && json.error.length) {
+    throw new Error(json.error.join("; "));
+  }
+
+  const result = json.result && Object.values(json.result)[0];
+  if (!result) {
+    throw new Error("Kraken response did not include ticker data.");
+  }
+
+  return buildTickerQuote({
+    source: "Kraken XBTUSD ticker",
+    sourceUrl: KRAKEN_TICKER_URL,
+    price: result.c?.[0],
+    volumeFrom: result.v?.[1],
+  });
+}
+
+async function fetchBitstampTickerPrice() {
+  const json = await fetchJson(BITSTAMP_TICKER_URL, "Bitstamp ticker");
+
+  return buildTickerQuote({
+    source: "Bitstamp BTC/USD ticker",
+    sourceUrl: BITSTAMP_TICKER_URL,
+    price: json.last,
+    volumeFrom: json.volume,
+  });
+}
+
+async function fetchCoinGeckoTickerPrice() {
+  const json = await fetchJson(COINGECKO_TICKER_URL, "CoinGecko ticker");
+  const bitcoin = json.bitcoin;
+  const price = finiteNumber(bitcoin?.usd);
+  const volumeTo = finiteNumber(bitcoin?.usd_24h_vol);
+
+  return buildTickerQuote({
+    source: "CoinGecko Bitcoin simple price",
+    sourceUrl: COINGECKO_TICKER_URL,
+    price,
+    volumeFrom: price > 0 ? volumeTo / price : 0,
+    volumeTo,
+  });
+}
+
+async function fetchJson(url, sourceName) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), CURRENT_PRICE_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        "Accept": "application/json",
+        "User-Agent": "btc-atc-github-pages",
+      },
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`${sourceName} request failed with ${response.status}: ${response.statusText}`);
+    }
+
+    return response.json();
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(`${sourceName} request timed out after ${CURRENT_PRICE_TIMEOUT_MS}ms.`);
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function buildTickerQuote({ source, sourceUrl, price, volumeFrom = 0, volumeTo }) {
+  const close = finiteNumber(price);
+  if (close <= 0) {
+    throw new Error(`${source} did not include a valid BTC price.`);
+  }
+
+  const normalizedVolumeFrom = finiteNumber(volumeFrom);
+  const normalizedVolumeTo = finiteNumber(volumeTo);
+
+  return {
+    source,
+    sourceUrl,
+    close,
+    volumeFrom: normalizedVolumeFrom,
+    volumeTo: normalizedVolumeTo > 0 ? normalizedVolumeTo : Number((normalizedVolumeFrom * close).toFixed(2)),
+  };
+}
+
+function tickerQuoteToPriceRow(date, latestCompleteRow, quote) {
+  const open = latestCompleteRow.close;
+
+  return {
+    date,
+    time: unixSeconds(date),
+    open,
+    high: Math.max(open, quote.close),
+    low: Math.min(open, quote.close),
+    close: quote.close,
+    volumeFrom: quote.volumeFrom,
+    volumeTo: quote.volumeTo,
+  };
+}
+
 async function fetchCoinbaseBatch(startDate, endDate) {
   const url = new URL(COINBASE_CANDLES_URL);
   url.searchParams.set("granularity", String(DAY_SECONDS));
@@ -334,6 +625,10 @@ function previousCompleteUtcDay(now = new Date()) {
   return new Date(today.getTime() - DAY_MS);
 }
 
+function currentUtcDay(now = new Date()) {
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+}
+
 function parseUtcDate(date) {
   if (date instanceof Date) {
     return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
@@ -390,15 +685,15 @@ async function readExistingSnapshot() {
   }
 }
 
-async function shouldFailStaleRefresh() {
+async function shouldFailStaleRefresh(latestDateOverride) {
   if (process.env.GITHUB_ACTIONS !== "true" && process.env.CI !== "true") {
     return false;
   }
 
   const snapshot = await readExistingSnapshot();
-  const latestDate = snapshot?.metadata?.latestCloseDate ?? snapshot?.prices?.at(-1)?.date;
+  const latestDate = latestDateOverride ?? snapshot?.metadata?.latestCloseDate ?? snapshot?.prices?.at(-1)?.date;
 
-  return typeof latestDate === "string" && latestDate < formatUtcDate(previousCompleteUtcDay());
+  return typeof latestDate === "string" && latestDate < formatUtcDate(currentUtcDay());
 }
 
 function currentSnapshotWarnings(snapshot, latestDate) {
@@ -420,7 +715,7 @@ function snapshotUsedCoinbaseFallback(snapshot) {
 function isSourceWarning(warning) {
   return (
     typeof warning === "string" &&
-    (warning.includes("Coinbase Exchange") || warning.includes("CryptoCompare/CoinDesk refresh failed"))
+    warning.includes("CryptoCompare/CoinDesk refresh failed")
   );
 }
 

@@ -67,8 +67,11 @@ export type BtcAtcDataset = {
     source: string;
     sourceUrl: string;
     fallbackSourceUrl?: string;
+    currentPriceSource?: string;
+    currentPriceSourceUrl?: string;
     startDate: string;
     latestCloseDate: string;
+    latestPriceIsIntraday?: boolean;
     projectionEndDate: string;
     priceRows: number;
     quantileRows: number;
