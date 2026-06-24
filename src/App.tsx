@@ -30,6 +30,7 @@ import {
 import {
   formatCurrency,
   formatDateLabel,
+  formatSnapshotDateTimeLabel,
   formatNumber,
   formatPercent,
 } from "./lib/format";
@@ -389,7 +390,9 @@ function App() {
               <Metric
                 icon={<RefreshCw size={17} />}
                 label="Snapshot"
-                value={formatDateLabel(dataState.data.metadata.latestCloseDate)}
+                value={formatSnapshotDateTimeLabel(
+                  dataState.data.metadata.generatedAt,
+                )}
               />
             ) : null}
           </div>

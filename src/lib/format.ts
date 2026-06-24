@@ -52,6 +52,18 @@ const dateLabelFormatter = new Intl.DateTimeFormat("en-US", {
   timeZone: "UTC",
 });
 
+const snapshotDateTimeFormatter = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+  timeZone: "UTC",
+  timeZoneName: "short",
+});
+
 export function formatCurrency(value: number): string {
   if (!Number.isFinite(value)) return "n/a";
 
@@ -80,4 +92,12 @@ export function formatNumber(value: number, maximumFractionDigits = 2): string {
 
 export function formatDateLabel(date: string): string {
   return dateLabelFormatter.format(new Date(`${date}T00:00:00.000Z`));
+}
+
+export function formatSnapshotDateTimeLabel(timestamp: string): string {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) {
+    return timestamp;
+  }
+  return snapshotDateTimeFormatter.format(date);
 }
