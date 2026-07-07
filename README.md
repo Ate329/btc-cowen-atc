@@ -18,7 +18,7 @@ Local and production builds use Vite `base: "/"` because the site is deployed at
 
 ## Data
 
-`scripts/generate-data.mjs` fetches BTC/USD daily OHLCV rows from the CryptoCompare/CoinDesk legacy `histoday` endpoint, starting on `2012-01-01`. If that source rejects an incremental refresh, the script appends missing recent BTC-USD daily candles from Coinbase Exchange as a fallback. Each online refresh also appends the current UTC day's snapshot from Coinbase candles, then falls back through Coinbase ticker, Binance, Kraken, Bitstamp, and CoinGecko current-price endpoints so scheduled Pages builds can update intraday. It writes `public/data/btc-atc.json` with:
+`scripts/generate-data.mjs` fetches BTC/USD daily OHLCV rows from the CryptoCompare/CoinDesk legacy `histoday` endpoint, starting on `2012-01-01`. If that source rejects or only partially serves an incremental refresh, the script tries free no-key daily backfill sources in order: Coinbase Exchange candles, Binance klines, Bitstamp OHLC, Kraken OHLC, KuCoin candles, and CoinGecko daily market chart rows. Small cross-source price differences are expected; fallback provenance is recorded in metadata warnings, and CoinGecko close-only rows approximate open/high/low from adjacent closes. Each online refresh also appends the current UTC day's snapshot from Coinbase candles, then falls back through Coinbase ticker, Binance, Kraken, Bitstamp, and CoinGecko current-price endpoints so scheduled Pages builds can update intraday. It writes `public/data/btc-atc.json` with:
 
 - `prices`: historical daily BTC/USD OHLCV rows.
 - `quantiles`: daily model bands through `2051-12-31`, enough for the site's 25-year projection view.

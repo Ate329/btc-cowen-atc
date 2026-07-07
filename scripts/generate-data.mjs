@@ -3,7 +3,8 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const modulePath = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(modulePath);
 const root = path.resolve(__dirname, "..");
 const configPath = path.join(root, "src", "data", "model-config.json");
 const outputPath = path.join(root, "public", "data", "btc-atc.json");
@@ -13,86 +14,101 @@ const DAY_SECONDS = 86_400;
 const HISTODAY_URL = "https://min-api.cryptocompare.com/data/v2/histoday";
 const COINBASE_CANDLES_URL = "https://api.exchange.coinbase.com/products/BTC-USD/candles";
 const COINBASE_TICKER_URL = "https://api.exchange.coinbase.com/products/BTC-USD/ticker";
+const BINANCE_KLINES_URL = "https://api.binance.com/api/v3/klines";
 const BINANCE_TICKER_URL = "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT";
 const KRAKEN_TICKER_URL = "https://api.kraken.com/0/public/Ticker?pair=XBTUSD";
+const KRAKEN_OHLC_URL = "https://api.kraken.com/0/public/OHLC";
+const BITSTAMP_OHLC_URL = "https://www.bitstamp.net/api/v2/ohlc/btcusd/";
 const BITSTAMP_TICKER_URL = "https://www.bitstamp.net/api/v2/ticker/btcusd/";
+const KUCOIN_CANDLES_URL = "https://api.kucoin.com/api/v1/market/candles";
 const COINGECKO_TICKER_URL =
   "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_vol=true&include_last_updated_at=true&precision=full";
+const COINGECKO_MARKET_CHART_URL = "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart/range";
 const COINBASE_MAX_DAILY_CANDLES = 300;
-const CURRENT_PRICE_TIMEOUT_MS = 8_000;
+const HTTP_TIMEOUT_MS = 8_000;
+const HTTP_MAX_ATTEMPTS = 3;
+const HTTP_RETRY_DELAYS_MS = process.env.NODE_ENV === "test" || process.env.VITEST ? [0, 0] : [500, 1_500];
 
 const model = JSON.parse(await readFile(configPath, "utf8"));
-const isOffline = process.argv.includes("--offline");
 const forceRefresh = process.argv.includes("--force-refresh");
 const cryptoCompareApiKey = process.env.CRYPTOCOMPARE_API_KEY ?? process.env.COINDESK_API_KEY ?? "";
 
-if (isOffline) {
-  await assertExistingSnapshot();
-  process.exit(0);
+if (isCliEntrypoint()) {
+  await main();
 }
 
-try {
-  const {
-    rows: prices,
-    warnings,
-    usedCoinbaseFallback = false,
-    currentPriceSource,
-    currentPriceSourceUrl,
-  } = await buildPriceRows();
-  const quantiles = generateQuantiles(model.startDate, model.projectionEndDate);
+async function main() {
+  const isOffline = process.argv.includes("--offline");
 
-  if (prices.length === 0) {
-    throw new Error("CryptoCompare returned no BTC price rows.");
+  if (isOffline) {
+    await assertExistingSnapshot();
+    process.exit(0);
   }
 
-  const latestPrice = prices.at(-1);
-  const latestPriceIsIntraday = latestPrice?.date === formatUtcDate(currentUtcDay());
-
-  if (latestPrice && (await shouldFailStaleRefresh(latestPrice.date))) {
-    console.error("Existing BTC data snapshot is stale in CI; refusing to publish an old snapshot.");
-    process.exit(1);
-  }
-
-  const payload = {
-    metadata: {
-      generatedAt: new Date().toISOString(),
-      source: usedCoinbaseFallback || currentPriceSource
-        ? "CryptoCompare/CoinDesk legacy histoday BTC/USD daily OHLCV, with fallback BTC/USD market data rows"
-        : "CryptoCompare/CoinDesk legacy histoday BTC/USD daily OHLCV",
-      sourceUrl: HISTODAY_URL,
-      fallbackSourceUrl: usedCoinbaseFallback ? COINBASE_CANDLES_URL : undefined,
+  try {
+    const {
+      rows: prices,
+      warnings,
+      usedFallback = false,
+      fallbackSourceUrl,
       currentPriceSource,
       currentPriceSourceUrl,
-      startDate: model.startDate,
-      latestCloseDate: latestPrice.date,
-      latestPriceIsIntraday,
-      projectionEndDate: model.projectionEndDate,
-      priceRows: prices.length,
-      quantileRows: quantiles.length,
-      model,
-      warnings,
-    },
-    prices,
-    quantiles,
-  };
+    } = await buildPriceRows();
+    const quantiles = generateQuantiles(model.startDate, model.projectionEndDate);
 
-  await mkdir(path.dirname(outputPath), { recursive: true });
-  await writeFile(outputPath, `${JSON.stringify(payload)}\n`, "utf8");
-  console.log(`Generated ${relative(outputPath)} with ${prices.length} prices and ${quantiles.length} model rows.`);
-} catch (error) {
-  if (existsSync(outputPath)) {
-    console.warn(`Data refresh failed; keeping existing ${relative(outputPath)}.`);
-    console.warn(error instanceof Error ? error.message : error);
+    if (prices.length === 0) {
+      throw new Error("CryptoCompare returned no BTC price rows.");
+    }
 
-    if (await shouldFailStaleRefresh()) {
+    const latestPrice = prices.at(-1);
+    const latestPriceIsIntraday = latestPrice?.date === formatUtcDate(currentUtcDay());
+
+    if (latestPrice && (await shouldFailStaleRefresh(latestPrice.date))) {
       console.error("Existing BTC data snapshot is stale in CI; refusing to publish an old snapshot.");
       process.exit(1);
     }
 
-    process.exit(0);
-  }
+    const payload = {
+      metadata: {
+        generatedAt: new Date().toISOString(),
+        source: usedFallback || currentPriceSource
+          ? "CryptoCompare/CoinDesk legacy histoday BTC/USD daily OHLCV, with fallback BTC/USD market data rows"
+          : "CryptoCompare/CoinDesk legacy histoday BTC/USD daily OHLCV",
+        sourceUrl: HISTODAY_URL,
+        fallbackSourceUrl,
+        currentPriceSource,
+        currentPriceSourceUrl,
+        startDate: model.startDate,
+        latestCloseDate: latestPrice.date,
+        latestPriceIsIntraday,
+        projectionEndDate: model.projectionEndDate,
+        priceRows: prices.length,
+        quantileRows: quantiles.length,
+        model,
+        warnings,
+      },
+      prices,
+      quantiles,
+    };
 
-  throw error;
+    await mkdir(path.dirname(outputPath), { recursive: true });
+    await writeFile(outputPath, `${JSON.stringify(payload)}\n`, "utf8");
+    console.log(`Generated ${relative(outputPath)} with ${prices.length} prices and ${quantiles.length} model rows.`);
+  } catch (error) {
+    if (existsSync(outputPath)) {
+      console.warn(`Data refresh failed; keeping existing ${relative(outputPath)}.`);
+      console.warn(error instanceof Error ? error.message : error);
+
+      if (await shouldFailStaleRefresh()) {
+        console.error("Existing BTC data snapshot is stale in CI; refusing to publish an old snapshot.");
+        process.exit(1);
+      }
+
+      process.exit(0);
+    }
+
+    throw error;
+  }
 }
 
 async function buildPriceRows() {
@@ -112,7 +128,8 @@ async function buildCompletePriceRows() {
       return {
         rows: existingRows,
         warnings: currentSnapshotWarnings(existing, latestExistingDate),
-        usedCoinbaseFallback: snapshotUsedCoinbaseFallback(existing),
+        usedFallback: snapshotUsedFallback(existing),
+        fallbackSourceUrl: snapshotFallbackSourceUrl(existing),
       };
     }
 
@@ -122,7 +139,7 @@ async function buildCompletePriceRows() {
       const missingDays = Math.ceil((unixSeconds(endDate) - unixSeconds(refreshFromDate)) / DAY_SECONDS);
 
       if (missingDays > 0) {
-        const { additions, warnings, usedCoinbaseFallback } = await fetchIncrementalAdditions(
+        const { additions, warnings, usedFallback, fallbackSourceUrl } = await fetchIncrementalAdditions(
           refreshFromDate,
           endDate,
           missingDays,
@@ -132,7 +149,8 @@ async function buildCompletePriceRows() {
         return {
           rows: merged,
           warnings,
-          usedCoinbaseFallback,
+          usedFallback,
+          fallbackSourceUrl,
         };
       }
     }
@@ -141,12 +159,12 @@ async function buildCompletePriceRows() {
   return fetchFullHistoricalPrices();
 }
 
-async function appendCurrentDaySnapshot({ rows, warnings, usedCoinbaseFallback = false }) {
+async function appendCurrentDaySnapshot({ rows, warnings, usedFallback = false, fallbackSourceUrl }) {
   const today = formatUtcDate(currentUtcDay());
   const latestCompleteRow = rows.at(-1);
 
   if (!latestCompleteRow || latestCompleteRow.date >= today) {
-    return { rows, warnings, usedCoinbaseFallback };
+    return { rows, warnings, usedFallback, fallbackSourceUrl };
   }
 
   try {
@@ -159,7 +177,8 @@ async function appendCurrentDaySnapshot({ rows, warnings, usedCoinbaseFallback =
         ...currentDay.warnings,
         `Loaded current-day BTC snapshot for ${today} from ${currentDay.source}.`,
       ],
-      usedCoinbaseFallback: true,
+      usedFallback: true,
+      fallbackSourceUrl,
       currentPriceSource: currentDay.source,
       currentPriceSourceUrl: currentDay.sourceUrl,
     };
@@ -167,7 +186,8 @@ async function appendCurrentDaySnapshot({ rows, warnings, usedCoinbaseFallback =
     return {
       rows,
       warnings: [...warnings, `Coinbase Exchange current-day snapshot failed (${errorMessage(error)}).`],
-      usedCoinbaseFallback,
+      usedFallback,
+      fallbackSourceUrl,
     };
   }
 }
@@ -225,35 +245,53 @@ async function fetchIncrementalAdditions(latestExistingDate, endDate, missingDay
         .filter((row) => row.time > unixSeconds(latestExistingDate) && row.time <= unixSeconds(endDate))
         .map(normalizePriceRow);
 
-      if (additions.length) {
+      if (additionsCoverEndDate(additions, endDate)) {
         return {
           additions,
           warnings: [`Loaded ${additions.length} daily BTC rows after ${latestExistingDate} from CryptoCompare/CoinDesk.`],
-          usedCoinbaseFallback: false,
+          usedFallback: false,
         };
       }
 
-      warnings.push(`CryptoCompare/CoinDesk returned no newer BTC rows after ${latestExistingDate}.`);
+      const latestCryptoCompareDate = additions.at(-1)?.date ?? "no rows";
+      warnings.push(`CryptoCompare/CoinDesk returned ${additions.length} newer BTC rows but only through ${latestCryptoCompareDate}.`);
     } catch (error) {
-      warnings.push(`CryptoCompare/CoinDesk refresh failed (${errorMessage(error)}); using Coinbase Exchange fallback.`);
+      warnings.push(`CryptoCompare/CoinDesk refresh failed (${errorMessage(error)}); trying free daily fallback sources.`);
     }
   } else {
     warnings.push(`Skipping CryptoCompare/CoinDesk append because ${missingDays} missing days exceeds its request limit.`);
   }
 
-  try {
-    const additions = await fetchCoinbaseAdditions(latestExistingDate, endDate);
+  const fallbackFailures = [];
 
-    return {
-      additions,
-      warnings: additions.length
-        ? [...warnings, `Loaded ${additions.length} daily BTC rows after ${latestExistingDate} from Coinbase Exchange BTC-USD candles.`]
-        : [...warnings, `No newer BTC rows available after ${latestExistingDate}.`],
-      usedCoinbaseFallback: additions.length > 0,
-    };
-  } catch (error) {
-    throw new Error(`Coinbase Exchange fallback failed: ${errorMessage(error)}`);
+  for (const source of dailyFallbackSources()) {
+    try {
+      const result = await source.fetchAdditions(latestExistingDate, endDate);
+      const additions = result.rows.filter((row) => row.date > latestExistingDate && row.date <= endDate);
+
+      if (additionsCoverEndDate(additions, endDate)) {
+        return {
+          additions,
+          warnings: [
+            ...warnings,
+            ...result.warnings,
+            `Loaded ${additions.length} daily BTC rows after ${latestExistingDate} from ${source.label}.`,
+          ],
+          usedFallback: true,
+          fallbackSourceUrl: source.sourceUrl,
+        };
+      }
+
+      const latestFallbackDate = additions.at(-1)?.date ?? "no rows";
+      warnings.push(`${source.label} returned ${additions.length} newer BTC rows but only through ${latestFallbackDate}; trying next fallback.`);
+    } catch (error) {
+      const message = `${source.label} daily fallback failed (${errorMessage(error)}).`;
+      warnings.push(message);
+      fallbackFailures.push(message);
+    }
   }
+
+  throw new Error(`All daily BTC fallback sources failed: ${fallbackFailures.join(" ")}`);
 }
 
 async function fetchBatch(toTs, limit) {
@@ -267,12 +305,7 @@ async function fetchBatch(toTs, limit) {
     url.searchParams.set("api_key", cryptoCompareApiKey);
   }
 
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`CryptoCompare request failed with ${response.status}: ${response.statusText}`);
-  }
-
-  const json = await response.json();
+  const json = await fetchJson(url, "CryptoCompare");
   if (json.Response !== "Success") {
     throw new Error(json.Message || "CryptoCompare response was not successful.");
   }
@@ -293,6 +326,203 @@ async function fetchCoinbaseAdditions(latestExistingDate, endDate) {
   }
 
   return dedupeAndSort(rows).filter((row) => row.date > latestExistingDate && row.date <= endDate);
+}
+
+function dailyFallbackSources() {
+  return [
+    {
+      label: "Coinbase Exchange BTC-USD daily candles",
+      sourceUrl: COINBASE_CANDLES_URL,
+      fetchAdditions: async (latestExistingDate, endDate) => ({
+        rows: await fetchCoinbaseAdditions(latestExistingDate, endDate),
+        warnings: [],
+      }),
+    },
+    {
+      label: "Binance BTCUSDT daily klines",
+      sourceUrl: BINANCE_KLINES_URL,
+      fetchAdditions: async (latestExistingDate, endDate) => ({
+        rows: await fetchBinanceAdditions(latestExistingDate, endDate),
+        warnings: [],
+      }),
+    },
+    {
+      label: "Bitstamp BTC/USD daily OHLC",
+      sourceUrl: BITSTAMP_OHLC_URL,
+      fetchAdditions: async (latestExistingDate, endDate) => ({
+        rows: await fetchBitstampAdditions(latestExistingDate, endDate),
+        warnings: [],
+      }),
+    },
+    {
+      label: "Kraken XBTUSD daily OHLC",
+      sourceUrl: KRAKEN_OHLC_URL,
+      fetchAdditions: async (latestExistingDate, endDate) => ({
+        rows: await fetchKrakenAdditions(latestExistingDate, endDate),
+        warnings: [],
+      }),
+    },
+    {
+      label: "KuCoin BTC-USDT daily klines",
+      sourceUrl: KUCOIN_CANDLES_URL,
+      fetchAdditions: async (latestExistingDate, endDate) => ({
+        rows: await fetchKuCoinAdditions(latestExistingDate, endDate),
+        warnings: [],
+      }),
+    },
+    {
+      label: "CoinGecko Bitcoin daily market chart",
+      sourceUrl: COINGECKO_MARKET_CHART_URL,
+      fetchAdditions: async (latestExistingDate, endDate) => ({
+        rows: await fetchCoinGeckoAdditions(latestExistingDate, endDate),
+        warnings: ["CoinGecko market chart rows include daily close and volume only; open/high/low were approximated from adjacent closes."],
+      }),
+    },
+  ];
+}
+
+async function fetchBinanceAdditions(latestExistingDate, endDate) {
+  const rows = [];
+  let cursor = addUtcDays(latestExistingDate, 1);
+  const end = parseUtcDate(endDate);
+  const maxRows = 1000;
+
+  while (cursor <= end) {
+    const chunkEnd = new Date(Math.min(end.getTime(), cursor.getTime() + (maxRows - 1) * DAY_MS));
+    const url = new URL(BINANCE_KLINES_URL);
+    url.searchParams.set("symbol", "BTCUSDT");
+    url.searchParams.set("interval", "1d");
+    url.searchParams.set("startTime", String(cursor.getTime()));
+    url.searchParams.set("endTime", String(chunkEnd.getTime() + DAY_MS - 1));
+    url.searchParams.set("limit", String(maxRows));
+
+    const batch = await fetchJson(url, "Binance klines");
+    if (!Array.isArray(batch)) {
+      throw new Error("Binance response was not a kline array.");
+    }
+
+    rows.push(...batch.map(normalizeBinanceRow));
+    cursor = new Date(chunkEnd.getTime() + DAY_MS);
+  }
+
+  return filterValidPriceRows(rows, "Binance");
+}
+
+async function fetchBitstampAdditions(latestExistingDate, endDate) {
+  const rows = [];
+  let cursor = addUtcDays(latestExistingDate, 1);
+  const end = parseUtcDate(endDate);
+  const maxRows = 1000;
+
+  while (cursor <= end) {
+    const chunkEnd = new Date(Math.min(end.getTime(), cursor.getTime() + (maxRows - 1) * DAY_MS));
+    const url = new URL(BITSTAMP_OHLC_URL);
+    url.searchParams.set("step", String(DAY_SECONDS));
+    url.searchParams.set("limit", String(maxRows));
+    url.searchParams.set("start", String(unixSeconds(cursor)));
+    url.searchParams.set("end", String(unixSeconds(chunkEnd)));
+    url.searchParams.set("exclude_current_candle", "true");
+
+    const json = await fetchJson(url, "Bitstamp OHLC");
+    const batch = json.data?.ohlc;
+    if (!Array.isArray(batch)) {
+      throw new Error("Bitstamp response did not include OHLC rows.");
+    }
+
+    rows.push(...batch.map(normalizeBitstampRow));
+    cursor = new Date(chunkEnd.getTime() + DAY_MS);
+  }
+
+  return filterValidPriceRows(rows, "Bitstamp");
+}
+
+async function fetchKrakenAdditions(latestExistingDate, endDate) {
+  const url = new URL(KRAKEN_OHLC_URL);
+  url.searchParams.set("pair", "XBTUSD");
+  url.searchParams.set("interval", "1440");
+  url.searchParams.set("since", String(unixSeconds(addUtcDays(latestExistingDate, 1))));
+
+  const json = await fetchJson(url, "Kraken OHLC");
+  if (Array.isArray(json.error) && json.error.length) {
+    throw new Error(json.error.join("; "));
+  }
+
+  const result = json.result && Object.entries(json.result).find(([key]) => key !== "last")?.[1];
+  if (!Array.isArray(result)) {
+    throw new Error("Kraken response did not include OHLC rows.");
+  }
+
+  return filterValidPriceRows(result.map(normalizeKrakenRow), "Kraken").filter((row) => row.date <= endDate);
+}
+
+async function fetchKuCoinAdditions(latestExistingDate, endDate) {
+  const rows = [];
+  let cursor = addUtcDays(latestExistingDate, 1);
+  const end = parseUtcDate(endDate);
+  const maxRows = 1500;
+
+  while (cursor <= end) {
+    const chunkEnd = new Date(Math.min(end.getTime(), cursor.getTime() + (maxRows - 1) * DAY_MS));
+    const url = new URL(KUCOIN_CANDLES_URL);
+    url.searchParams.set("symbol", "BTC-USDT");
+    url.searchParams.set("type", "1day");
+    url.searchParams.set("startAt", String(unixSeconds(cursor)));
+    url.searchParams.set("endAt", String(unixSeconds(chunkEnd)));
+
+    const json = await fetchJson(url, "KuCoin candles");
+    if (json.code !== "200000" || !Array.isArray(json.data)) {
+      throw new Error(json.msg || "KuCoin response did not include candle rows.");
+    }
+
+    rows.push(...json.data.map(normalizeKuCoinRow));
+    cursor = new Date(chunkEnd.getTime() + DAY_MS);
+  }
+
+  return filterValidPriceRows(rows, "KuCoin");
+}
+
+async function fetchCoinGeckoAdditions(latestExistingDate, endDate) {
+  const url = new URL(COINGECKO_MARKET_CHART_URL);
+  url.searchParams.set("vs_currency", "usd");
+  url.searchParams.set("from", String(unixSeconds(addUtcDays(latestExistingDate, 1))));
+  url.searchParams.set("to", String(unixSeconds(addUtcDays(endDate, 1))));
+  url.searchParams.set("interval", "daily");
+  url.searchParams.set("precision", "full");
+
+  const json = await fetchJson(url, "CoinGecko market chart");
+  if (!Array.isArray(json.prices)) {
+    throw new Error("CoinGecko response did not include price rows.");
+  }
+
+  const volumeByDate = new Map(
+    Array.isArray(json.total_volumes)
+      ? json.total_volumes.map(([timestamp, volume]) => [dateFromUnixMilliseconds(timestamp), finiteNumber(volume)])
+      : [],
+  );
+  let previousClose = await previousCloseForDate(latestExistingDate);
+  const rows = [];
+
+  for (const [timestamp, price] of json.prices) {
+    const date = dateFromUnixMilliseconds(timestamp);
+    const close = finiteNumber(price);
+    if (close <= 0) continue;
+
+    const open = previousClose > 0 ? previousClose : close;
+    const volumeTo = finiteNumber(volumeByDate.get(date));
+    rows.push({
+      date,
+      time: unixSeconds(date),
+      open,
+      high: Math.max(open, close),
+      low: Math.min(open, close),
+      close,
+      volumeFrom: close > 0 ? volumeTo / close : 0,
+      volumeTo,
+    });
+    previousClose = close;
+  }
+
+  return filterValidPriceRows(rows, "CoinGecko");
 }
 
 async function fetchCoinbaseCurrentDaySnapshot(date, latestCompleteRow) {
@@ -330,17 +560,7 @@ async function fetchCoinbaseCurrentDayCandle(date) {
   url.searchParams.set("start", today);
   url.searchParams.set("end", now.toISOString());
 
-  const response = await fetch(url, {
-    headers: {
-      "User-Agent": "btc-atc-github-pages",
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error(`Coinbase request failed with ${response.status}: ${response.statusText}`);
-  }
-
-  const json = await response.json();
+  const json = await fetchJson(url, "Coinbase current-day candle");
   if (!Array.isArray(json)) {
     throw new Error("Coinbase response was not a candle array.");
   }
@@ -465,32 +685,69 @@ async function fetchCoinGeckoTickerPrice() {
 }
 
 async function fetchJson(url, sourceName) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), CURRENT_PRICE_TIMEOUT_MS);
+  const response = await fetchWithRetry(url, sourceName);
 
-  try {
-    const response = await fetch(url, {
-      headers: {
-        "Accept": "application/json",
-        "User-Agent": "btc-atc-github-pages",
-      },
-      signal: controller.signal,
-    });
+  return response.json();
+}
 
-    if (!response.ok) {
-      throw new Error(`${sourceName} request failed with ${response.status}: ${response.statusText}`);
+async function fetchWithRetry(url, sourceName, options = {}) {
+  const maxAttempts = options.maxAttempts ?? HTTP_MAX_ATTEMPTS;
+  const retryDelays = options.retryDelays ?? HTTP_RETRY_DELAYS_MS;
+  let lastError;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? HTTP_TIMEOUT_MS);
+
+    try {
+      const response = await fetch(url, {
+        headers: {
+          "Accept": "application/json",
+          "User-Agent": "btc-atc-github-pages",
+          ...options.headers,
+        },
+        signal: controller.signal,
+      });
+
+      if (response.ok) {
+        return response;
+      }
+
+      const error = new Error(`${sourceName} request failed with ${response.status}: ${response.statusText}`);
+      error.status = response.status;
+      lastError = error;
+
+      if (!shouldRetryHttpStatus(response.status, attempt, maxAttempts)) {
+        throw error;
+      }
+    } catch (error) {
+      lastError = error instanceof Error && error.name === "AbortError"
+        ? new Error(`${sourceName} request timed out after ${options.timeoutMs ?? HTTP_TIMEOUT_MS}ms.`)
+        : error;
+
+      if (typeof lastError?.status === "number" && !shouldRetryHttpStatus(lastError.status, attempt, maxAttempts)) {
+        if (attempt > 0 && isRetryableError(lastError)) {
+          throw new Error(`${errorMessage(lastError)} after ${attempt + 1} attempts.`);
+        }
+
+        throw lastError;
+      }
+
+      if (!isRetryableError(lastError) || attempt >= maxAttempts - 1) {
+        if (attempt >= maxAttempts - 1 && isRetryableError(lastError)) {
+          throw new Error(`${errorMessage(lastError)} after ${attempt + 1} attempts.`);
+        }
+
+        throw lastError;
+      }
+    } finally {
+      clearTimeout(timeout);
     }
 
-    return response.json();
-  } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") {
-      throw new Error(`${sourceName} request timed out after ${CURRENT_PRICE_TIMEOUT_MS}ms.`);
-    }
-
-    throw error;
-  } finally {
-    clearTimeout(timeout);
+    await delay(retryDelays[Math.min(attempt, retryDelays.length - 1)] ?? 0);
   }
+
+  throw lastError ?? new Error(`${sourceName} request failed.`);
 }
 
 function buildTickerQuote({ source, sourceUrl, price, volumeFrom = 0, volumeTo }) {
@@ -532,17 +789,7 @@ async function fetchCoinbaseBatch(startDate, endDate) {
   url.searchParams.set("start", `${startDate}T00:00:00Z`);
   url.searchParams.set("end", `${endDate}T00:00:00Z`);
 
-  const response = await fetch(url, {
-    headers: {
-      "User-Agent": "btc-atc-github-pages",
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error(`Coinbase request failed with ${response.status}: ${response.statusText}`);
-  }
-
-  const json = await response.json();
+  const json = await fetchJson(url, "Coinbase candles");
   if (!Array.isArray(json)) {
     throw new Error("Coinbase response was not a candle array.");
   }
@@ -580,8 +827,103 @@ function normalizeCoinbaseRow(row) {
   };
 }
 
+function normalizeBinanceRow(row) {
+  const open = finiteNumber(row[1]);
+  const high = finiteNumber(row[2]);
+  const low = finiteNumber(row[3]);
+  const close = finiteNumber(row[4]);
+  const volumeFrom = finiteNumber(row[5]);
+  const volumeTo = finiteNumber(row[7]);
+
+  return {
+    date: dateFromUnixMilliseconds(row[0]),
+    time: Math.floor(finiteNumber(row[0]) / 1000),
+    open,
+    high,
+    low,
+    close,
+    volumeFrom,
+    volumeTo: volumeTo > 0 ? volumeTo : Number((volumeFrom * close).toFixed(2)),
+  };
+}
+
+function normalizeBitstampRow(row) {
+  const close = finiteNumber(row.close);
+  const volumeFrom = finiteNumber(row.volume);
+
+  return {
+    date: dateFromUnixSeconds(row.timestamp),
+    time: finiteNumber(row.timestamp),
+    open: finiteNumber(row.open),
+    high: finiteNumber(row.high),
+    low: finiteNumber(row.low),
+    close,
+    volumeFrom,
+    volumeTo: Number((volumeFrom * close).toFixed(2)),
+  };
+}
+
+function normalizeKrakenRow(row) {
+  const [time, open, high, low, close, , volume] = row;
+  const closeValue = finiteNumber(close);
+  const volumeFrom = finiteNumber(volume);
+
+  return {
+    date: dateFromUnixSeconds(time),
+    time: finiteNumber(time),
+    open: finiteNumber(open),
+    high: finiteNumber(high),
+    low: finiteNumber(low),
+    close: closeValue,
+    volumeFrom,
+    volumeTo: Number((volumeFrom * closeValue).toFixed(2)),
+  };
+}
+
+function normalizeKuCoinRow(row) {
+  const [time, open, close, high, low, volume, turnover] = row;
+  const closeValue = finiteNumber(close);
+  const volumeFrom = finiteNumber(volume);
+  const volumeTo = finiteNumber(turnover);
+
+  return {
+    date: dateFromUnixSeconds(time),
+    time: finiteNumber(time),
+    open: finiteNumber(open),
+    high: finiteNumber(high),
+    low: finiteNumber(low),
+    close: closeValue,
+    volumeFrom,
+    volumeTo: volumeTo > 0 ? volumeTo : Number((volumeFrom * closeValue).toFixed(2)),
+  };
+}
+
 function dedupeAndSort(rows) {
   return [...new Map(rows.map((row) => [row.time, row])).values()].sort((a, b) => a.time - b.time);
+}
+
+function filterValidPriceRows(rows, sourceName) {
+  return dedupeAndSort(rows).filter((row) => {
+    const isValid = (
+      typeof row.date === "string" &&
+      Number.isFinite(row.time) &&
+      row.open > 0 &&
+      row.high > 0 &&
+      row.low > 0 &&
+      row.close > 0 &&
+      row.high >= row.low
+    );
+
+    if (!isValid) {
+      console.warn(`${sourceName} returned an invalid BTC row for ${row.date ?? "unknown date"}; skipping it.`);
+    }
+
+    return isValid;
+  });
+}
+
+function additionsCoverEndDate(additions, endDate) {
+  return additions.some((row) => row.date === endDate);
 }
 
 function generateQuantiles(startDate, endDate) {
@@ -653,9 +995,34 @@ function dateFromUnixSeconds(seconds) {
   return new Date(seconds * 1000).toISOString().slice(0, 10);
 }
 
+function dateFromUnixMilliseconds(milliseconds) {
+  return new Date(finiteNumber(milliseconds)).toISOString().slice(0, 10);
+}
+
 function finiteNumber(value) {
   const number = Number(value);
   return Number.isFinite(number) ? number : 0;
+}
+
+function shouldRetryHttpStatus(status, attempt, maxAttempts) {
+  if (attempt >= maxAttempts - 1) return false;
+  if (status === 403) return attempt === 0;
+
+  return status === 408 || status === 429 || status >= 500;
+}
+
+function isRetryableError(error) {
+  const status = error?.status;
+  if (typeof status === "number") {
+    return status === 408 || status === 429 || status >= 500 || status === 403;
+  }
+
+  return error instanceof TypeError || String(error?.message ?? error).includes("timed out");
+}
+
+async function delay(milliseconds) {
+  if (milliseconds <= 0) return;
+  await new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 function roundPrice(value) {
@@ -685,6 +1052,13 @@ async function readExistingSnapshot() {
   }
 }
 
+async function previousCloseForDate(date) {
+  const snapshot = await readExistingSnapshot();
+  const row = snapshot?.prices?.find((item) => item.date === date);
+
+  return finiteNumber(row?.close);
+}
+
 async function shouldFailStaleRefresh(latestDateOverride) {
   if (process.env.GITHUB_ACTIONS !== "true" && process.env.CI !== "true") {
     return false;
@@ -704,18 +1078,26 @@ function currentSnapshotWarnings(snapshot, latestDate) {
   return [...retainedWarnings, `Existing snapshot already current through ${latestDate}.`];
 }
 
-function snapshotUsedCoinbaseFallback(snapshot) {
+function snapshotUsedFallback(snapshot) {
   return Boolean(
     snapshot?.metadata?.fallbackSourceUrl ||
-      snapshot?.metadata?.source?.includes("Coinbase Exchange") ||
+      snapshot?.metadata?.source?.includes("fallback BTC/USD market data rows") ||
       snapshot?.metadata?.warnings?.some(isSourceWarning),
   );
+}
+
+function snapshotFallbackSourceUrl(snapshot) {
+  return snapshot?.metadata?.fallbackSourceUrl;
 }
 
 function isSourceWarning(warning) {
   return (
     typeof warning === "string" &&
-    warning.includes("CryptoCompare/CoinDesk refresh failed")
+    (
+      warning.includes("CryptoCompare/CoinDesk refresh failed") ||
+      warning.includes("daily fallback failed") ||
+      warning.includes("Loaded") && warning.includes("daily BTC rows")
+    )
   );
 }
 
@@ -726,3 +1108,18 @@ function errorMessage(error) {
 function relative(filePath) {
   return path.relative(root, filePath).replaceAll("\\", "/");
 }
+
+function isCliEntrypoint() {
+  return process.argv[1] ? path.resolve(process.argv[1]) === modulePath : false;
+}
+
+export {
+  appendCurrentDaySnapshot,
+  fetchIncrementalAdditions,
+  fetchWithRetry,
+  normalizeBinanceRow,
+  normalizeBitstampRow,
+  normalizeCoinbaseRow,
+  normalizeKrakenRow,
+  normalizeKuCoinRow,
+};
