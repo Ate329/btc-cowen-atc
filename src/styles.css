@@ -53,6 +53,10 @@
   --tick: #b8beb6;
   --axis: #6c756e;
   --crosshair: rgba(29, 33, 31, 0.4);
+  --cycle-marker: rgba(138, 63, 18, 0.56);
+  --cycle-guide: rgba(102, 112, 106, 0.4);
+  --cycle-marker-label: #6f320f;
+  --cycle-guide-label: #66706a;
   --tooltip-bg: rgba(255, 255, 255, 0.96);
   --tooltip-border: rgba(29, 33, 31, 0.12);
   --quantile-q1: #087f5b;
@@ -144,6 +148,10 @@ html[data-theme="dark"] {
   --tick: #62736b;
   --axis: #9fafaa;
   --crosshair: rgba(237, 244, 239, 0.42);
+  --cycle-marker: rgba(242, 165, 65, 0.68);
+  --cycle-guide: rgba(164, 178, 171, 0.46);
+  --cycle-marker-label: #f3bd76;
+  --cycle-guide-label: #a4b2ab;
   --tooltip-bg: rgba(19, 28, 26, 0.97);
   --tooltip-border: rgba(237, 244, 239, 0.16);
   --quantile-q1: #2bd18f;
@@ -900,6 +908,37 @@ h2 {
   fill: var(--axis);
   font-size: 13px;
   font-weight: 650;
+}
+
+.cycle-marker {
+  pointer-events: none;
+}
+
+.cycle-marker-line {
+  stroke: var(--cycle-marker);
+  stroke-width: 1.15;
+  stroke-dasharray: 2 6;
+  vector-effect: non-scaling-stroke;
+}
+
+.cycle-marker-label {
+  fill: var(--cycle-marker-label);
+  stroke: var(--chart-paper);
+  stroke-width: 3.5px;
+  paint-order: stroke;
+  stroke-linejoin: round;
+  font-size: 9px;
+  font-weight: 820;
+  letter-spacing: 0.07em;
+}
+
+.cycle-marker-guide .cycle-marker-line {
+  stroke: var(--cycle-guide);
+  stroke-dasharray: 1.5 7;
+}
+
+.cycle-marker-guide .cycle-marker-label {
+  fill: var(--cycle-guide-label);
 }
 
 .band {

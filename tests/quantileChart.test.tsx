@@ -71,6 +71,47 @@ describe("QuantileChart", () => {
       root.unmount();
     });
   });
+
+  it("shows historical halvings and clearly distinguishes future four-year guides", () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+
+    act(() => {
+      root.render(
+        <QuantileChart
+          prices={[priceRow("2011-01-01", 10), priceRow("2026-01-01", 20)]}
+          quantiles={[
+            quantileRow("2011-01-01", 10),
+            quantileRow("2030-01-01", 30),
+          ]}
+          visibleQuantiles={visibleQuantiles}
+        />,
+      );
+    });
+
+    const halvingLabels = Array.from(
+      host.querySelectorAll(".cycle-marker-halving .cycle-marker-label"),
+    ).map((node) => node.textContent);
+    const guideLabels = Array.from(
+      host.querySelectorAll(".cycle-marker-guide .cycle-marker-label"),
+    ).map((node) => node.textContent);
+
+    expect(halvingLabels).toEqual([
+      "HALVING \u00b7 2012",
+      "HALVING \u00b7 2016",
+      "HALVING \u00b7 2020",
+      "HALVING \u00b7 2024",
+    ]);
+    expect(guideLabels).toEqual(["4Y GUIDE \u00b7 2028"]);
+    expect(
+      host.querySelector(".cycle-marker-guide")?.getAttribute("aria-label"),
+    ).toContain("future halving dates depend on block production");
+
+    act(() => {
+      root.unmount();
+    });
+  });
 });
 
 const prices: PriceRow[] = [

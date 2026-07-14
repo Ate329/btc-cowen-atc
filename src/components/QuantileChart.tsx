@@ -39,6 +39,12 @@ type TooltipState = {
 
 type QuantileLinePath = { key: QuantileKey; d: string };
 type LatestPoint = { x: number; y: number };
+type CycleMarker = {
+  date: Date;
+  kind: "halving" | "guide";
+  label: string;
+  description: string;
+};
 
 const width = 1040;
 const height = 488;
@@ -47,6 +53,17 @@ const chartWidth = width - margin.left - margin.right;
 const chartHeight = height - margin.top - margin.bottom;
 const pathDigits = 1;
 const quantileRenderDensity = 1.5;
+
+const historicalHalvings = [
+  { date: "2012-11-28", year: 2012 },
+  { date: "2016-07-09", year: 2016 },
+  { date: "2020-05-11", year: 2020 },
+  { date: "2024-04-20", year: 2024 },
+] as const;
+
+const lastHalvingYear = historicalHalvings.at(-1)?.year ?? 2024;
+const cycleGuideMonth = 3;
+const cycleGuideDay = 20;
 
 const quantileColors: Record<QuantileKey, string> = {
   q1: "var(--quantile-q1)",
@@ -226,6 +243,10 @@ export const QuantileChart = memo(function QuantileChart({
   }, [hoverPoints]);
 
   const xTicks = useMemo(() => xScale.ticks(7), [xScale]);
+  const cycleMarkers = useMemo(
+    () => getCycleMarkers(xDomain[0], xDomain[1]),
+    [xDomain],
+  );
   const yTicks = useMemo(() => {
     const [min, max] = yDomain;
     return [
@@ -450,7 +471,7 @@ export const QuantileChart = memo(function QuantileChart({
       className="quantile-chart"
       viewBox={`0 0 ${width} ${height}`}
       role="img"
-      aria-label="Log scale Bitcoin price chart with asymmetric quantile model bands."
+      aria-label="Log scale Bitcoin price chart with asymmetric quantile model bands and four-year cycle markers."
       onPointerMove={handlePointerMove}
       onPointerLeave={handlePointerLeave}
     >
@@ -467,6 +488,7 @@ export const QuantileChart = memo(function QuantileChart({
           yScale={yScale}
           xTicks={xTicks}
           yTicks={yTicks}
+          cycleMarkers={cycleMarkers}
           bandPaths={bandPaths}
           quantilePaths={quantilePaths}
           pricePath={pricePath}
@@ -529,6 +551,7 @@ const StaticChartLayers = memo(function StaticChartLayers({
   yScale,
   xTicks,
   yTicks,
+  cycleMarkers,
   bandPaths,
   quantilePaths,
   pricePath,
@@ -538,6 +561,7 @@ const StaticChartLayers = memo(function StaticChartLayers({
   yScale: d3.ScaleLogarithmic<number, number>;
   xTicks: Date[];
   yTicks: number[];
+  cycleMarkers: CycleMarker[];
   bandPaths: BandPath[];
   quantilePaths: QuantileLinePath[];
   pricePath: string;
@@ -584,6 +608,29 @@ const StaticChartLayers = memo(function StaticChartLayers({
         ) : null,
       )}
 
+      {cycleMarkers.map((marker) => (
+        <g
+          key={`${marker.kind}-${marker.date.toISOString()}`}
+          className={`cycle-marker cycle-marker-${marker.kind}`}
+          transform={`translate(${xScale(marker.date)},0)`}
+          aria-label={marker.description}
+        >
+          <title>{marker.description}</title>
+          <line
+            className="cycle-marker-line"
+            y1="21"
+            y2={chartHeight}
+          />
+          <text
+            className="cycle-marker-label"
+            y="13"
+            textAnchor="middle"
+          >
+            {marker.label}
+          </text>
+        </g>
+      ))}
+
       {quantilePaths.map(({ key, d }) =>
         d ? (
           <path
@@ -609,6 +656,35 @@ const StaticChartLayers = memo(function StaticChartLayers({
 
 function parseDate(date: string): Date {
   return new Date(`${date}T00:00:00.000Z`);
+}
+
+function getCycleMarkers(startDate: Date, endDate: Date): CycleMarker[] {
+  const startTime = startDate.getTime();
+  const endTime = endDate.getTime();
+  const markers: CycleMarker[] = historicalHalvings.map(({ date, year }) => ({
+    date: parseDate(date),
+    kind: "halving",
+    label: `HALVING \u00b7 ${year}`,
+    description: `Bitcoin halving on ${date}`,
+  }));
+
+  for (
+    let year = lastHalvingYear + 4;
+    year <= endDate.getUTCFullYear();
+    year += 4
+  ) {
+    markers.push({
+      date: new Date(Date.UTC(year, cycleGuideMonth, cycleGuideDay)),
+      kind: "guide",
+      label: `4Y GUIDE \u00b7 ${year}`,
+      description: `Nominal four-year cycle guide for ${year}; future halving dates depend on block production`,
+    });
+  }
+
+  return markers.filter((marker) => {
+    const time = marker.date.getTime();
+    return time >= startTime && time <= endTime;
+  });
 }
 
 function toQuantileValues(row: QuantileRow): QuantileValues {
